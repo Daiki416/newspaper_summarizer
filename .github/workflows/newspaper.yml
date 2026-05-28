@@ -8,6 +8,9 @@ on:
     - cron: '0 10 * * *'
   workflow_dispatch:  # 手動実行ボタン（テスト用）
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   deliver:
     runs-on: ubuntu-latest
