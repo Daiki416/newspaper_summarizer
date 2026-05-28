@@ -23,8 +23,13 @@ def _load_sources() -> dict:
 
     YAML（ヤムル）とは設定ファイルによく使われるテキスト形式です。
     """
-    with open(CONFIG_PATH, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        raise SystemExit(f"設定ファイルが見つかりません: {CONFIG_PATH}")
+    except yaml.YAMLError as e:
+        raise SystemExit(f"設定ファイルの形式が不正です: {e}")
 
 
 def _parse_published(entry) -> datetime | None:
@@ -84,9 +89,7 @@ def _fetch_category(feeds: list[dict], cutoff: datetime) -> list[dict]:
             feed_count += 1
     # newest first, then cap
     # 新しい記事が先頭に来るよう降順ソートする
-    # 日時がない記事（日経wor.jpフィードなど）は「現在時刻」とみなして上位に混在させる
-    now_utc = datetime.now(timezone.utc)
-    articles.sort(key=lambda a: a["_pub_dt"] or now_utc, reverse=True)
+    articles.sort(key=lambda a: a["_pub_dt"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     # ソート用の一時フィールドは不要なので削除する
     for a in articles:
         del a["_pub_dt"]

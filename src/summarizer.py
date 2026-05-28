@@ -167,6 +167,7 @@ def summarize(articles_by_category: dict[str, list[dict]]) -> dict:
             # まれにAIがリストをJSON文字列として返すことがある
             # json_repair はそのような壊れたJSONも修復して解析できるライブラリ
             for key in ("summaries", "terms", "stock_picks"):
+                result.setdefault(key, [])
                 if isinstance(result.get(key), str):
                     result[key] = json.loads(repair_json(result[key]))
             return result

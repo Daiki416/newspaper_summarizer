@@ -168,6 +168,13 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
     return "".join(parts)
 
 
+def _mask_email(email: str) -> str:
+    if "@" not in email:
+        return email
+    local, domain = email.split("@", 1)
+    return f"{local[0]}***@{domain}"
+
+
 def send(edition: str, result: dict, dry_run: bool = False) -> None:
     """要約結果をメールで送信する。
 
@@ -177,7 +184,7 @@ def send(edition: str, result: dict, dry_run: bool = False) -> None:
         dry_run: True のとき実際には送信せずテキストを標準出力
     """
     now_jst = datetime.now(JST)
-    date_str = now_jst.strftime("%Y年%-m月%-d日")
+    date_str = f"{now_jst.year}年{now_jst.month}月{now_jst.day}日"
     subject = f"📰 [{edition}] {date_str} 主要ニュース"
 
     # テキスト版とHTML版の両方を作る（メールクライアントが選んで表示する）
@@ -224,4 +231,4 @@ def send(edition: str, result: dict, dry_run: bool = False) -> None:
         server.login(gmail_address, app_password)
         server.sendmail(gmail_address, notify_email, msg.as_string())
 
-    print(f"送信完了: {subject} → {notify_email}")
+    print(f"送信完了: {subject} → {_mask_email(notify_email)}")
