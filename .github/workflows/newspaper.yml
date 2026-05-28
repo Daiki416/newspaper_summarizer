@@ -1,0 +1,34 @@
+name: 📰 ニュース自動配信
+
+on:
+  schedule:
+    # 朝刊: 毎朝 7:00 JST (= 22:00 UTC)
+    - cron: '0 22 * * *'
+    # 夕刊: 毎夕 19:00 JST (= 10:00 UTC)
+    - cron: '0 10 * * *'
+  workflow_dispatch:  # 手動実行ボタン（テスト用）
+
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: 依存パッケージをインストール
+        run: pip install -r requirements.txt
+
+      - name: ニュース取得・要約・メール送信
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: python src/main.py
