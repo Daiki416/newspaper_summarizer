@@ -211,24 +211,21 @@ def send(edition: str, result: dict, dry_run: bool = False) -> None:
     # アプリパスワードはGmailの通常パスワードではなく、
     # Googleアカウントで発行した16桁の専用パスワード（2段階認証が必要）
     app_password = os.environ["GMAIL_APP_PASSWORD"]
-    notify_email = os.environ["NOTIFY_EMAIL"]
+    # カンマ区切りで複数アドレスを指定可能（例: a@gmail.com,b@gmail.com）
+    recipients = [e.strip() for e in os.environ["NOTIFY_EMAIL"].split(",") if e.strip()]
 
     # --- メールの組み立て ---
-    # MIMEMultipart("alternative") は同じ内容をテキストとHTMLの両方で格納するための形式
-    # メールクライアントはHTML対応なら html を、非対応なら plain を表示する
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = gmail_address
-    msg["To"] = notify_email
+    msg["To"] = ", ".join(recipients)
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    # --- SMTPでメールを送信する ---
-    # SMTP（Simple Mail Transfer Protocol）はメール送信のための通信規格
-    # Gmailは587番ポートを使い、STARTTLS（通信の暗号化）が必要
     with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
-        server.starttls()  # 通信を暗号化する
+        server.starttls()
         server.login(gmail_address, app_password)
-        server.sendmail(gmail_address, notify_email, msg.as_string())
+        server.sendmail(gmail_address, recipients, msg.as_string())
 
-    print(f"送信完了: {subject} → {_mask_email(notify_email)}")
+    masked = ", ".join(_mask_email(e) for e in recipients)
+    print(f"送信完了: {subject} → {masked}")
