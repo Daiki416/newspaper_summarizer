@@ -5,7 +5,7 @@ on:
     # 朝刊: 毎朝 7:00 JST (= 22:00 UTC)
     - cron: '0 22 * * *'
     # 夕刊: 毎夕 19:00 JST (= 10:00 UTC)
-    - cron: '0 10 * * *'
+    # - cron: '0 10 * * *'
   workflow_dispatch:  # 手動実行ボタン（テスト用）
 
 env:
