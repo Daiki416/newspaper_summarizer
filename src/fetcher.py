@@ -7,6 +7,7 @@ import feedparser
 import yaml
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+import socket
 
 # ニュースソース（取得先URL）の設定ファイルのパス
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "sources.yaml"
@@ -68,7 +69,7 @@ def _fetch_category(feeds: list[dict], cutoff: datetime) -> list[dict]:
                 break
             pub = _parse_published(entry)
             # カットオフより古い記事はスキップ（continue で次のループへ）
-            if pub and pub < cutoff:
+            if pub is None or pub < cutoff:
                 continue
             summary = getattr(entry, "summary", "") or ""
             # feedparser wraps HTML — strip tags simply
@@ -79,7 +80,7 @@ def _fetch_category(feeds: list[dict], cutoff: datetime) -> list[dict]:
                 "title": entry.get("title", ""),
                 "url": entry.get("link", ""),
                 # 日時を「HH:MM」形式の文字列に変換（メール表示用）
-                "published": pub.astimezone(JST).strftime("%H:%M") if pub else "",
+                "published": pub.astimezone(JST).strftime("%H:%M"),
                 # ソート用に日時オブジェクトを一時的に保持する（後で削除）
                 "_pub_dt": pub,
                 # 概要は長すぎてもAIに渡しにくいので400文字で切り捨てる
@@ -89,7 +90,7 @@ def _fetch_category(feeds: list[dict], cutoff: datetime) -> list[dict]:
             feed_count += 1
     # newest first, then cap
     # 新しい記事が先頭に来るよう降順ソートする
-    articles.sort(key=lambda a: a["_pub_dt"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    articles.sort(key=lambda a: a["_pub_dt"], reverse=True)
     # ソート用の一時フィールドは不要なので削除する
     for a in articles:
         del a["_pub_dt"]
@@ -105,6 +106,8 @@ def fetch_all(hours: int = 12) -> dict[str, list[dict]]:
     Returns:
         {カテゴリ名: [記事dict, ...]} の辞書
     """
+    # プロセス全体のソケット通信タイムアウトをグローバルに設定する（単一目的CLIボットのため許容）
+    socket.setdefaulttimeout(30)
     # 現在時刻から hours 時間前を「カットオフ（取得の締め切り時刻）」とする
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     sources = _load_sources()

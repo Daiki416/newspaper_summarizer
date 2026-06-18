@@ -213,6 +213,8 @@ def send(edition: str, result: dict, dry_run: bool = False) -> None:
     app_password = os.environ["GMAIL_APP_PASSWORD"]
     # カンマ区切りで複数アドレスを指定可能（例: a@gmail.com,b@gmail.com）
     recipients = [e.strip() for e in os.environ["NOTIFY_EMAIL"].split(",") if e.strip()]
+    if not recipients:
+        raise SystemExit("NOTIFY_EMAIL に有効なアドレスが含まれていません")
 
     # --- メールの組み立て ---
     msg = MIMEMultipart("alternative")
