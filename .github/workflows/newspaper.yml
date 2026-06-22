@@ -1,12 +1,14 @@
 name: 📰 ニュース自動配信
 
 on:
-  schedule:
-    # 朝刊: 毎朝 7:00 JST (= 22:00 UTC)
-    - cron: '0 22 * * *'
-    # 夕刊: 毎夕 19:00 JST (= 10:00 UTC)
-    # - cron: '0 10 * * *'
-  workflow_dispatch:  # 手動実行ボタン（テスト用）
+  # 定時配信は AWS (Lambda + EventBridge Rule, 7:00 JST) に移行済み。
+  # 二重配信を避けるため schedule は無効化。手動バックアップとして dispatch のみ残す。
+  # schedule:
+  #   # 朝刊: 毎朝 7:00 JST (= 22:00 UTC)
+  #   - cron: '0 22 * * *'
+  #   # 夕刊: 毎夕 19:00 JST (= 10:00 UTC)
+  #   # - cron: '0 10 * * *'
+  workflow_dispatch:  # 手動実行ボタン（AWS障害時のバックアップ用）
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

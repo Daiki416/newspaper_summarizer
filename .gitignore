@@ -10,3 +10,7 @@ build/
 venv/
 settings*
 docs/aws-migration.md
+# AWSデプロイ素材（アカウントID入り・コードからは読まれない使い捨て）
+aws/
+# macOSのゴミ
+.DS_Store
