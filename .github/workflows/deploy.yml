@@ -1,0 +1,57 @@
+name: 🚀 AWS Lambda へデプロイ
+
+# main にコード変更が push されたら、ビルド → ECR push → Lambda反映 を自動実行する。
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'config/**'
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:  # 手動実行ボタン
+
+# OIDC でトークンを取得するために id-token: write が必須。
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-1
+  ECR_REPO: newspaper
+  FUNCTION_NAME: newspaper
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04-arm  # arm64 ネイティブランナー（Lambda が arm64 のため）
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: AWS 認証（OIDC でデプロイ用ロールを引き受け）
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # アカウントIDを公開しないため、ロールARNは GitHub Secret から渡す
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: ECR ログイン
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: ビルド → push → Lambda 反映
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${ECR_REPO}"
+          # --provenance=false は必須（Lambda は OCI マニフェストリストを受け付けない）
+          docker build --platform linux/arm64 --provenance=false -t "${IMAGE_URI}:latest" .
+          docker push "${IMAGE_URI}:latest"
+          aws lambda update-function-code \
+            --function-name "${FUNCTION_NAME}" \
+            --image-uri "${IMAGE_URI}:latest" \
+            --region "${AWS_REGION}"
+          aws lambda wait function-updated \
+            --function-name "${FUNCTION_NAME}" \
+            --region "${AWS_REGION}"
