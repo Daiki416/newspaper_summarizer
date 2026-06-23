@@ -61,8 +61,8 @@ def main() -> None:
     parser.add_argument(
         "--hours",
         type=int,
-        default=12,
-        help="何時間前以降の記事を対象にするか（デフォルト: 12）",
+        default=24,
+        help="何時間前以降の記事を対象にするか（デフォルト: 24）",
     )
     parser.add_argument(
         "--use-cache",
@@ -111,8 +111,8 @@ def main() -> None:
             CACHE_PATH.parent.mkdir(exist_ok=True)
             CACHE_PATH.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        # 要約・用語の件数を表示して進捗を確認できるようにする
-        print(f"  要約: {len(result.get('summaries', []))}件 / 用語: {len(result.get('terms', []))}件")
+        # 要約の件数を表示して進捗を確認できるようにする
+        print(f"  要約: {len(result.get('summaries', []))}件")
 
         print("メール送信中..." if not args.dry_run else "（dry-run）メール内容を表示します")
         send(edition, result, dry_run=args.dry_run)

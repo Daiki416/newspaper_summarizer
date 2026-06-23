@@ -76,14 +76,15 @@ def handler(event, context):
     """Lambda ハンドラ。RSS取得 → AI要約 → メール送信を実行する。
 
     event:
-        hours: 何時間前以降の記事を対象にするか（デフォルト 12）
+        hours: 何時間前以降の記事を対象にするか（デフォルト 24）
         edition: "morning" / "evening"（省略時は現在時刻で自動判定）
     """
     # EventBridge から呼ばれた際に event が None になるケースに備える
     event = event or {}
 
     # EventBridge の input で "24"（文字列）が渡ることがあるため int に正規化する
-    hours = int(event.get("hours", 12))
+    # 朝1本配信のため、未指定時は直近24時間を対象にする
+    hours = int(event.get("hours", 24))
     edition = _resolve_edition(event)
 
     print(f"[{edition}] ニュース取得中... (hours={hours})")

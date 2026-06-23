@@ -9,8 +9,6 @@
     name: NHK ビジネス
   - url: https://assets.wor.jp/rss/rdf/nikkei/business.rdf
     name: 日経 ビジネス
-  - url: https://toyokeizai.net/list/feed/rss
-    name: 東洋経済オンライン
 
 国内投資・マーケット:
   - url: https://assets.wor.jp/rss/rdf/nikkei/markets.rdf

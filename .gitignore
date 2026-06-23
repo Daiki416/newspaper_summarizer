@@ -10,6 +10,8 @@ build/
 venv/
 settings*
 docs/aws-migration.md
+# レビュー残課題メモ（ローカル用・gitには載せない）
+docs/review-notes.md
 # AWSデプロイ素材（アカウントID入り・コードからは読まれない使い捨て）
 aws/
 # macOSのゴミ

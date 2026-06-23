@@ -16,7 +16,8 @@ JST = timezone(timedelta(hours=9))
 # 1フィードあたりの最大記事数（1ソースが枠を独占しないようにする）
 MAX_ARTICLES_PER_FEED = 2
 # 1カテゴリあたりの最大取得記事数（多すぎるとAIへの入力が長くなるため制限する）
-MAX_ARTICLES_PER_CATEGORY = 6
+# 1記事が要約＋背景＋生活影響＋キーワードの4ブロック構成になったため、読みやすさ優先で3件に絞る
+MAX_ARTICLES_PER_CATEGORY = 3
 
 
 def _load_sources() -> dict:

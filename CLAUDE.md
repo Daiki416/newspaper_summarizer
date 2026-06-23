@@ -67,18 +67,21 @@ python src/main.py --use-cache
 
 - **Claude Tool Use**: `output_news_summary` ツールを `tool_choice: required` で強制し、構造化JSONを確実に取得する
 - **システムプロンプトキャッシュ**: `cache_control: ephemeral` でAPI費用を節約
-- **RSSフィルタリング**: 1フィード最大2件、1カテゴリ最大6件に制限してAPIの入力を抑える
+- **RSSフィルタリング**: 1フィード最大2件、1カテゴリ最大3件に制限してAPIの入力を抑える（記事ごとに4ブロック化したため読みやすさ優先で絞った）
+- **対象期間**: 朝1本配信のため、デフォルトで直近24時間の記事を対象にする（main.py `--hours` / Lambda の hours デフォルトとも 24）
 - **キャッシュ機能**: `.cache/last_result.json` に保存し、`--use-cache` で再利用できる
 - **朝刊/夕刊判定**: 5〜10時→朝刊、16〜22時→夕刊、それ以外は朝刊をデフォルトとする
 - **GitHub Actions concurrency**: `cancel-in-progress: false` で二重送信を防ぐ
 - **複数送信先**: `NOTIFY_EMAIL` をカンマ区切りで複数指定可能
+- **生活への影響は全体で1個**: 記事ごとではなく、今日のニュース全体を踏まえた `life_impact` をトップレベルに1個だけ生成する
+- **keywords / companies / people は任意（品質ゲート）**: 該当する場合のみ生成し、無ければ空配列。keywords は 0〜3個に絞る
 
 ## ニュースカテゴリ
 
 | カテゴリ | ソース |
 |---|---|
 | 国内政治・経済 | NHK 政治、日経 経済 |
-| 国内ビジネス | NHK ビジネス、日経 ビジネス、東洋経済オンライン |
+| 国内ビジネス | NHK ビジネス、日経 ビジネス |
 | 国内投資・マーケット | 日経 マーケット |
 | 国内テクノロジー・科学 | 日経 テクノロジー、ITmedia、日経XTECH、Publickey |
 | 国際 | NHK 国際 |
@@ -87,11 +90,20 @@ python src/main.py --use-cache
 
 ```python
 {
-  "summaries": [{"category", "title", "summary", "url", "source"}],
-  "terms": [{"word", "reading", "explanation"}],      # 専門用語 3〜5件
-  "stock_picks": [{"ticker", "name", "direction", "reason", "source_headline"}],  # 注目銘柄
-  "life_impact": str   # 生活への影響（2〜3文）
+  "summaries": [{
+    "category", "title", "summary",
+    "background",                              # なぜ起きたか／前提となる文脈（1〜2文）
+    "companies": [{"name", "description"}],    # 企業紹介（任意・該当時のみ、無ければ空配列）
+    "people":    [{"name", "description"}],    # 人物紹介（任意・該当時のみ、無ければ空配列）
+    "keywords":  [{"word", "note"}],           # キーワード 0〜3件（任意・無ければ空配列）
+    "url", "source"
+  }],
+  "life_impact": str,                          # 全体の生活への影響（全体で1個・2〜3文）
+  "stock_picks": [{"ticker", "name", "direction", "reason", "source_headline"}]  # 注目銘柄
 }
+# required: トップレベルは summaries / life_impact / stock_picks
+#           summaries item は category / title / summary / url / source / background
+#           （companies / people / keywords は任意＝空配列可、記事ごとの life_impact は廃止）
 ```
 
 ## テスト

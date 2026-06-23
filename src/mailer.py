@@ -40,26 +40,37 @@ def _build_text(edition: str, result: dict, date_str: str) -> str:
         lines.append(f"━━ {icon} {cat} ━━")
         lines.append(f"【{item['title']}】")
         lines.append(item["summary"])
+        # 背景（記事ごと・内容がある場合のみ表示）
+        background = item.get("background", "")
+        if background:
+            lines.append(f"🔍 背景: {background}")
+        # 企業紹介（記事ごと・内容がある場合のみ表示）
+        companies = item.get("companies", [])
+        if companies:
+            lines.append("🏢 企業紹介:")
+            for c in companies:
+                lines.append(f"• {c.get('name', '')} — {c.get('description', '')}")
+        # 人物紹介（記事ごと・内容がある場合のみ表示）
+        people = item.get("people", [])
+        if people:
+            lines.append("👤 人物紹介:")
+            for p in people:
+                lines.append(f"• {p.get('name', '')} — {p.get('description', '')}")
+        # キーワード（記事ごと・内容がある場合のみ表示）
+        keywords = item.get("keywords", [])
+        if keywords:
+            lines.append("🏷 キーワード:")
+            for kw in keywords:
+                lines.append(f"• {kw.get('word', '')} — {kw.get('note', '')}")
         lines.append(f"🔗 {item['url']}")
         lines.append(f"📰 {item.get('source', '')}")
         lines.append("")
 
-    # 生活への影響セクション（内容がある場合のみ表示）
+    # 生活への影響セクション（全体で1個・内容がある場合のみ表示）
     life_impact = result.get("life_impact", "")
     if life_impact:
         lines.append("━━ 🏠 生活への影響 ━━")
         lines.append(life_impact)
-        lines.append("")
-
-    # 用語解説セクション（用語がある場合のみ表示）
-    terms = result.get("terms", [])
-    if terms:
-        lines.append("━━ 📚 今日の用語 ━━")
-        for t in terms:
-            # 読み仮名がある場合は [] で囲んで表示する、ない場合は空文字
-            reading = f"[{t['reading']}]" if t.get("reading") else ""
-            lines.append(f"• {t['word']}{reading}")
-            lines.append(f"  {t['explanation']}")
         lines.append("")
 
     # 注目銘柄候補セクション（銘柄がある場合のみ表示）
@@ -99,10 +110,10 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         ".article-title{font-weight:bold}",
         ".article-summary{margin:4px 0}",
         "a{color:#1a73e8;text-decoration:none}",
-        ".terms{background:#fffbe6;border:1px solid #f0d060;padding:12px 16px;margin-top:24px;border-radius:6px}",
-        ".terms h2{background:none;border:none;padding:0;margin:0 0 8px}",
-        ".term{margin:8px 0}.term-word{font-weight:bold}",
-        ".life-impact{background:#e8f4e8;border:1px solid #60c060;padding:12px 16px;margin-top:24px;border-radius:6px}",
+        ".article-background{margin:4px 0;color:#555}",
+        ".article-entities{margin:4px 0;font-size:0.9em}.article-entities .ent{margin:2px 0}.article-entities .ent-name{font-weight:bold}",
+        ".life{margin:16px 0;background:#e8f4e8;border-left:4px solid #60c060;padding:8px 12px}",
+        ".article-keywords{margin:4px 0;font-size:0.9em}.article-keywords .kw{margin:2px 0}.article-keywords .kw-word{font-weight:bold}",
         ".stocks{background:#e8f0fe;border:1px solid #6090d0;padding:12px 16px;margin-top:16px;border-radius:6px}",
         ".stock-item{margin:10px 0}.stock-meta{font-weight:bold}.stock-disclaimer{font-size:0.85em;color:#666;margin-bottom:8px}",
         ".article-source{font-size:0.8em;color:#888;margin-top:2px}",
@@ -126,29 +137,45 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         parts.append('<div class="article">')
         parts.append(f'<div class="article-title">{safe_title}</div>')
         parts.append(f'<div class="article-summary">{safe_summary}</div>')
+        # 背景（記事ごと・内容がある場合のみ表示）
+        background = item.get("background", "")
+        if background:
+            parts.append(f'<div class="article-background">🔍 背景: {html.escape(background)}</div>')
+        # 企業紹介（記事ごと・内容がある場合のみ表示）
+        companies = item.get("companies", [])
+        if companies:
+            parts.append('<div class="article-entities">🏢 企業紹介:')
+            for c in companies:
+                parts.append(
+                    f'<div class="ent"><span class="ent-name">{html.escape(c.get("name", ""))}</span> — {html.escape(c.get("description", ""))}</div>'
+                )
+            parts.append("</div>")
+        # 人物紹介（記事ごと・内容がある場合のみ表示）
+        people = item.get("people", [])
+        if people:
+            parts.append('<div class="article-entities">👤 人物紹介:')
+            for p in people:
+                parts.append(
+                    f'<div class="ent"><span class="ent-name">{html.escape(p.get("name", ""))}</span> — {html.escape(p.get("description", ""))}</div>'
+                )
+            parts.append("</div>")
+        # キーワード（記事ごと・内容がある場合のみ表示）
+        keywords = item.get("keywords", [])
+        if keywords:
+            parts.append('<div class="article-keywords">🏷 キーワード:')
+            for kw in keywords:
+                parts.append(
+                    f'<div class="kw"><span class="kw-word">{html.escape(kw.get("word", ""))}</span> — {html.escape(kw.get("note", ""))}</div>'
+                )
+            parts.append("</div>")
         parts.append(f'<a href="{safe_url}">🔗 記事を読む</a>')
         parts.append(f'<div class="article-source">📰 {html.escape(item.get("source", ""))}</div>')
         parts.append("</div>")
 
-    # 生活への影響セクション
+    # 生活への影響セクション（全体で1個・内容がある場合のみ表示）
     life_impact = result.get("life_impact", "")
     if life_impact:
-        parts.append('<div class="life-impact"><h2>🏠 生活への影響</h2>')
-        parts.append(f'<p>{html.escape(life_impact)}</p>')
-        parts.append("</div>")
-
-    # 用語解説セクション
-    terms = result.get("terms", [])
-    if terms:
-        parts.append('<div class="terms"><h2>📚 今日の用語</h2>')
-        for t in terms:
-            # 読み仮名がある場合は（よみ）形式で表示、ない場合は空文字
-            reading = f"（{html.escape(t['reading'])}）" if t.get("reading") else ""
-            parts.append('<div class="term">')
-            parts.append(f'<span class="term-word">{html.escape(t["word"])}{reading}</span><br>')
-            parts.append(f'{html.escape(t["explanation"])}')
-            parts.append("</div>")
-        parts.append("</div>")
+        parts.append(f'<div class="life"><h2>🏠 生活への影響</h2>{html.escape(life_impact)}</div>')
 
     # 注目銘柄候補セクション
     stock_picks = result.get("stock_picks", [])
