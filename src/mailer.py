@@ -23,6 +23,26 @@ CATEGORY_ICONS = {
 }
 
 
+def _format_price_line(stock: dict) -> str | None:
+    """注目銘柄の現在値・前日比を表す文言を返す。price が無ければ None。
+
+    例: "現在値 2,750円（前日比 +1.8%）"。
+    Yahoo chart API の regularMarketPrice（現在値）ベースのため「現在値」と書く。
+    符号: 正は "+1.8%"、負は "-0.5%"、ゼロは "±0.0%"。
+    """
+    price = stock.get("price")
+    if price is None:
+        return None
+    pct = stock.get("change_pct", 0.0)
+    if pct > 0:
+        pct_str = f"+{pct:.1f}%"
+    elif pct < 0:
+        pct_str = f"{pct:.1f}%"  # マイナス符号は f-string が付与する
+    else:
+        pct_str = "±0.0%"
+    return f"現在値 {price:,.0f}円（前日比 {pct_str}）"
+
+
 def _build_text(edition: str, result: dict, date_str: str) -> str:
     """プレーンテキスト形式のメール本文を組み立てる。
 
@@ -81,6 +101,10 @@ def _build_text(edition: str, result: dict, date_str: str) -> str:
         for s in stock_picks:
             lines.append(f"• {s['ticker']} {s['name']} {s['direction']}")
             lines.append(f"  {s['reason']}")
+            # 現在値・前日比（取得できた銘柄のみ・reason と根拠の間に表示）
+            price_line = _format_price_line(s)
+            if price_line:
+                lines.append(f"  {price_line}")
             lines.append(f"  根拠: {s['source_headline']}")
         lines.append("")
 
@@ -116,6 +140,7 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         ".article-keywords{margin:4px 0;font-size:0.9em}.article-keywords .kw{margin:2px 0}.article-keywords .kw-word{font-weight:bold}",
         ".stocks{background:#e8f0fe;border:1px solid #6090d0;padding:12px 16px;margin-top:16px;border-radius:6px}",
         ".stock-item{margin:10px 0}.stock-meta{font-weight:bold}.stock-disclaimer{font-size:0.85em;color:#666;margin-bottom:8px}",
+        ".stock-price{font-size:0.95em;color:#1a4d8f;margin:2px 0}",
         ".article-source{font-size:0.8em;color:#888;margin-top:2px}",
         "</style></head><body>",
         f"<h1>📰 [{edition}] {date_str} 主要ニュース</h1>",
@@ -186,6 +211,10 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
             parts.append('<div class="stock-item">')
             parts.append(f'<div class="stock-meta">{html.escape(s["ticker"])} {html.escape(s["name"])} {html.escape(s["direction"])}</div>')
             parts.append(f'<div>{html.escape(s["reason"])}</div>')
+            # 現在値・前日比（取得できた銘柄のみ）。整形後の文字列も html.escape する
+            price_line = _format_price_line(s)
+            if price_line:
+                parts.append(f'<div class="stock-price">{html.escape(price_line)}</div>')
             parts.append(f'<div>根拠: {html.escape(s["source_headline"])}</div>')
             parts.append("</div>")
         parts.append("</div>")

@@ -162,3 +162,64 @@ def test_build_html_escapes_script_in_new_fields():
     assert "<b>co</b>" not in html_out
     assert "<script>c</script>" not in html_out
     assert "<script>p</script>" not in html_out
+
+
+# --- stock_picks 現在値・前日比 ---
+
+
+def _pick(**overrides):
+    base = {
+        "ticker": "7203",
+        "name": "トヨタ",
+        "direction": "↑",
+        "reason": "好決算のため",
+        "source_headline": "トヨタ過去最高益",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_build_text_stock_price_up():
+    pick = _pick(price=2750.0, change=49.5, change_pct=1.8)
+    result = {"summaries": [], "stock_picks": [pick]}
+    text = _build_text("朝刊", result, "2026年6月23日")
+    assert "現在値 2,750円（前日比 +1.8%）" in text
+
+
+def test_build_text_stock_price_down():
+    pick = _pick(price=2650.0, change=-50.0, change_pct=-0.5)
+    result = {"summaries": [], "stock_picks": [pick]}
+    text = _build_text("朝刊", result, "2026年6月23日")
+    assert "現在値 2,650円（前日比 -0.5%）" in text
+
+
+def test_build_text_stock_price_zero():
+    pick = _pick(price=2700.0, change=0.0, change_pct=0.0)
+    result = {"summaries": [], "stock_picks": [pick]}
+    text = _build_text("朝刊", result, "2026年6月23日")
+    assert "現在値 2,700円（前日比 ±0.0%）" in text
+
+
+def test_build_text_no_price_no_line():
+    # 価格キーが無い従来 pick では現在値行を出さない
+    result = {"summaries": [], "stock_picks": [_pick()]}
+    text = _build_text("朝刊", result, "2026年6月23日")
+    assert "現在値" not in text
+    # 既存の項目は従来通り表示される
+    assert "好決算のため" in text
+    assert "根拠: トヨタ過去最高益" in text
+
+
+def test_build_html_stock_price_up():
+    pick = _pick(price=2750.0, change=49.5, change_pct=1.8)
+    result = {"summaries": [], "stock_picks": [pick]}
+    html_out = _build_html("朝刊", result, "2026年6月23日")
+    assert 'class="stock-price"' in html_out
+    assert "現在値 2,750円（前日比 +1.8%）" in html_out
+
+
+def test_build_html_no_price_no_line():
+    result = {"summaries": [], "stock_picks": [_pick()]}
+    html_out = _build_html("朝刊", result, "2026年6月23日")
+    assert 'class="stock-price"' not in html_out
+    assert "現在値" not in html_out

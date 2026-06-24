@@ -57,6 +57,7 @@ from fetcher import fetch_all
 from summarizer import summarize
 from mailer import send
 from storage import save_delivery
+from quotes import enrich_stock_prices
 
 
 def _resolve_edition(event: dict) -> str:
@@ -101,6 +102,10 @@ def handler(event, context):
 
     print("Claude APIで要約中...")
     result = summarize(articles)
+
+    # 注目銘柄に Stooq の終値・前日比をベストエフォートでマージする（send の前）。
+    # S3 保存は send の後なので、S3 には価格込みで保存される（許容）。
+    result["stock_picks"] = enrich_stock_prices(result.get("stock_picks", []))
 
     print("メール送信中...")
     send(edition, result, dry_run=False)

@@ -18,6 +18,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 from fetcher import fetch_all
 from summarizer import summarize
 from mailer import send
+from quotes import enrich_stock_prices
 
 # JST = 日本標準時（UTC+9）。Pythonの日時処理はデフォルトでUTCを使うため明示的に定義する
 JST = timezone(timedelta(hours=9))
@@ -113,6 +114,10 @@ def main() -> None:
 
         # 要約の件数を表示して進捗を確認できるようにする
         print(f"  要約: {len(result.get('summaries', []))}件")
+
+        # 注目銘柄に Stooq の終値・前日比をベストエフォートでマージする。
+        # キャッシュ保存（上記 CACHE_PATH 書き込み）の後に実行するため、価格はキャッシュに残らない。
+        result["stock_picks"] = enrich_stock_prices(result.get("stock_picks", []))
 
         print("メール送信中..." if not args.dry_run else "（dry-run）メール内容を表示します")
         send(edition, result, dry_run=args.dry_run)
