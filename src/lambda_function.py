@@ -56,6 +56,7 @@ from main import detect_edition
 from fetcher import fetch_all
 from summarizer import summarize
 from mailer import send
+from storage import save_delivery
 
 
 def _resolve_edition(event: dict) -> str:
@@ -103,6 +104,15 @@ def handler(event, context):
 
     print("メール送信中...")
     send(edition, result, dry_run=False)
+
+    # ベストエフォートでS3へ蓄積保存（失敗しても配信成功は壊さない）
+    try:
+        key = save_delivery(result, edition, datetime.now(JST))
+        if key:
+            print(f"S3保存: bucket={os.environ.get('CACHE_BUCKET')} key={key}")
+    except Exception as e:
+        # 秘密情報を出さない。例外型名のみ（バケット名は出してよいが API キー等は厳禁）
+        print(f"S3保存に失敗（配信は成功）: {type(e).__name__}")
 
     # 戻り値には秘密情報を含めない（最小限の実行結果のみ）
     return {
