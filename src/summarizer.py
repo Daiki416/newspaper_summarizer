@@ -151,10 +151,15 @@ _TOOL = {
 }
 
 
-def _normalize_keywords(summaries: list) -> None:
-    """各記事の keywords / companies / people を「dictのリスト」に正規化する。
+# keywords / companies / people は任意フィールド（該当時のみ・無ければ空配列）。
+# 3フィールドを同一ポリシーで正規化するため、正規化ループからのみ参照する定数。
+# （_TOOL スキーマは companies/people={name,description} と keywords={word,note} で
+#  items 形状が異なるため、スキーマ側は無理に共通化せずこの定数は正規化に限定する）
+_OPTIONAL_LIST_FIELDS = ("keywords", "companies", "people")
 
-    （関数名は後方互換のため keywords のままだが、3フィールドを同一ポリシーで処理する）
+
+def _normalize_entity_fields(summaries: list) -> None:
+    """各記事の keywords / companies / people の3フィールドを正規化する（in-place・返り値 None）。
 
     AIの出力ゆれに対する防御処理:
         - summaries の要素が非dict（str等）の場合はスキップする
@@ -169,7 +174,7 @@ def _normalize_keywords(summaries: list) -> None:
     for item in summaries:
         if not isinstance(item, dict):
             continue
-        for field in ("keywords", "companies", "people"):
+        for field in _OPTIONAL_LIST_FIELDS:
             item.setdefault(field, [])
             if isinstance(item[field], str):
                 # AIが "該当なし" / "なし" / "" / 空白のみ といった
@@ -208,6 +213,7 @@ def summarize(articles_by_category: dict[str, list[dict]]) -> dict:
         # AIへ渡すテキストに含まれる「スマートクォート」（""）を
         # 通常のダブルクォート（"）に統一する。
         # スマートクォートはJSONを壊す原因になるため事前に除去しておく。
+        # 変換対象: U+201C（“）/ U+201D（”）→ U+0022（"）。
         return text.replace('"', '"').replace('"', '"')
 
     # --- AIへ送るプロンプト（入力テキスト）を組み立てる ---
@@ -281,7 +287,7 @@ def summarize(articles_by_category: dict[str, list[dict]]) -> dict:
             #   - keywords が文字列 → 修復して解析しリスト化する
             #   - keywords の要素が非dict（["インフレ", ...] のような単純なstr）
             #     → 除去し、必ずdictのリストにする（mailer側のkw.get()クラッシュ防止）
-            _normalize_keywords(result["summaries"])
+            _normalize_entity_fields(result["summaries"])
             # 全体の生活への影響が欠落していても mailer 側へ None が渡らないようにする
             result.setdefault("life_impact", "")
             return result

@@ -115,7 +115,7 @@ def main() -> None:
         # 要約の件数を表示して進捗を確認できるようにする
         print(f"  要約: {len(result.get('summaries', []))}件")
 
-        # 注目銘柄に Stooq の終値・前日比をベストエフォートでマージする。
+        # 注目銘柄に Yahoo の現在値・前日比をベストエフォートでマージする。
         # キャッシュ保存（上記 CACHE_PATH 書き込み）の後に実行するため、価格はキャッシュに残らない。
         result["stock_picks"] = enrich_stock_prices(result.get("stock_picks", []))
 
@@ -124,7 +124,9 @@ def main() -> None:
     except Exception as e:
         # 予期しないエラーが起きた場合は原因を表示してプログラムを終了する
         # sys.stderr はエラー専用の出力先で、通常の出力と分けることで問題の特定がしやすくなる
-        print(f"エラーが発生しました: {e}", file=sys.stderr)
+        # 例外メッセージ本文には smtplib 経由で送信元/送信先メアドが含まれ得るため、
+        # ログには例外型名のみ出す（lambda_function.py / quotes.py と統一）
+        print(f"エラーが発生しました: {type(e).__name__}", file=sys.stderr)
         sys.exit(1)
 
 

@@ -16,17 +16,21 @@ import re
 import unicodedata
 import urllib.request
 from datetime import datetime, timezone, timedelta
+from typing import Callable
 
-# Yahoo Finance chart API（日足・直近 5 日。meta だけ使うので range は短くてよい）
+# Yahoo Finance chart API（日足。meta（現在値・前日終値）だけ使うので range=1d で十分）。
+# 不変条件: ホストは query1.finance.yahoo.com 固定（query2 等へは切り替えない）。
 _YAHOO_URL = (
-    "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
+    "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
 )
 
 # デフォルトの urllib User-Agent だと 404 になるため、ブラウザ風 UA を必ず付ける
 _USER_AGENT = "Mozilla/5.0"
 
-# 4 桁の数字コードを抽出する正規表現（先頭から 4 桁の数字を取る）
-_CODE_RE = re.compile(r"^(\d{4})")
+# 4 桁の数字コード（任意で ".suffix" 付き）に厳密一致する正規表現。
+# 両端アンカー + ASCII 限定。"6472" / "6472.T" / "6472.JP" は通り、
+# "12345" / "6472X" / "6472999" は一致しない（全角は NFKC で半角化済み）。
+_CODE_RE = re.compile(r"^([0-9]{4})(?:\.\w+)?$")
 
 # 日本標準時（UTC+9）。as_of の日付変換に使う
 _JST = timezone(timedelta(hours=9))
@@ -64,7 +68,7 @@ def compute_change(prev_close: float, last_price: float) -> tuple[float, float]:
 def parse_chart_json(json_text: str) -> dict | None:
     """Yahoo chart API のレスポンス文字列をパースし現在値・前日比を返す。
 
-    戻り: {"price", "change", "change_pct", "as_of"} or None。
+    戻り: {"price", "change_pct", "as_of"} or None。
     price = meta["regularMarketPrice"], prev = meta["chartPreviousClose"]。
     as_of は meta["regularMarketTime"]（epoch 秒）を JST 日付 "YYYY-MM-DD" に変換。
 
@@ -93,10 +97,11 @@ def parse_chart_json(json_text: str) -> dict | None:
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
 
-    change, change_pct = compute_change(prev, price)
+    # change（前日比の円額）は配信で未使用のデッドフィールドのためマージしない。
+    # compute_change は change_pct 算出のために (change, change_pct) を返すが change は捨てる。
+    _change, change_pct = compute_change(prev, price)
     return {
         "price": price,
-        "change": float(change),
         "change_pct": float(change_pct),
         "as_of": as_of,
     }
@@ -105,7 +110,7 @@ def parse_chart_json(json_text: str) -> dict | None:
 def fetch_quote(symbol: str, *, timeout: float = 10.0) -> dict | None:
     """Yahoo chart API から symbol の現在値・前日比を返す。
 
-    戻り: {"price", "change", "change_pct", "as_of"} or None。
+    戻り: {"price", "change_pct", "as_of"} or None。
     例外・タイムアウト・HTTPError・空/壊れレスポンスは全てここで握りつぶし
     None を返す（raise しない）。
     """
@@ -128,9 +133,14 @@ def fetch_quote(symbol: str, *, timeout: float = 10.0) -> dict | None:
 
 
 def enrich_stock_prices(
-    stock_picks: list[dict], fetcher=fetch_quote, timeout: float = 10.0
+    stock_picks: list[dict],
+    fetcher: Callable[..., dict | None] = fetch_quote,
+    timeout: float = 10.0,
 ) -> list[dict]:
     """各 stock_pick に現在値・前日比をベストエフォートでマージして返す。
+
+    fetcher はテスト差し替え点（既定は fetch_quote。テストでは実 HTTP を避けるため
+    fetcher(symbol, timeout=...) を満たすスタブを渡す）。
 
     - to_yahoo_symbol(pick["ticker"]) が None ならスキップ（価格キーを付けない）
     - symbol が取れたら fetcher(symbol, timeout=timeout) を呼び結果を pick にマージ

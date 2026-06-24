@@ -18,9 +18,83 @@ CATEGORY_ICONS = {
     "国内政治・経済": "🏛",
     "国内ビジネス": "📈",
     "国内投資・マーケット": "💹",
-    "国内テクノロジー・科学": "🔬",
     "国際": "🌐",
+    "国内テクノロジー・科学": "🔬",
 }
+
+# 名前と説明を区切る共通セパレータ（"name — description" の " — " 部分）
+_SEP = " — "
+
+# セクション見出し等で使う絵文字を散在させずまとめておく（文言は不変）
+_ICON_HEADER = "📰"       # メール件名・トップ見出し・記事ソース行
+_ICON_BACKGROUND = "🔍"   # 背景
+_ICON_LIFE = "🏠"         # 生活への影響
+_ICON_STOCKS = "📊"       # 注目銘柄候補
+_ICON_LINK = "🔗"         # 記事リンク
+_ICON_DEFAULT_CAT = "📄"  # 未知カテゴリのデフォルトアイコン
+
+# 企業紹介 / 人物紹介 / キーワードの3セクションの「表示メタ定義」。
+# field=summaries item のキー、icon=見出し絵文字、label=見出し語、
+# name_key/desc_key=各要素 dict から取り出す名前キー・説明キー。
+# 【重要】keywords だけ HTML の CSS クラスが companies/people と異なる
+# （keywords: article-keywords/kw/kw-word、companies・people: article-entities/ent/ent-name）。
+# この差異は維持する必要があるため、css 系をメタに持たせて吸収している。
+_ENTITY_SECTIONS = (
+    {
+        "field": "companies", "icon": "🏢", "label": "企業紹介",
+        "name_key": "name", "desc_key": "description",
+        "wrapper_css": "article-entities", "item_css": "ent", "name_css": "ent-name",
+    },
+    {
+        "field": "people", "icon": "👤", "label": "人物紹介",
+        "name_key": "name", "desc_key": "description",
+        "wrapper_css": "article-entities", "item_css": "ent", "name_css": "ent-name",
+    },
+    {
+        "field": "keywords", "icon": "🏷", "label": "キーワード",
+        "name_key": "word", "desc_key": "note",
+        "wrapper_css": "article-keywords", "item_css": "kw", "name_css": "kw-word",
+    },
+)
+
+
+def _append_entity_text(lines: list, section: dict, entities: list) -> None:
+    """text 版で1つのエンティティセクションを lines に追記する。
+
+    section は _ENTITY_SECTIONS の要素 dict。現行出力を完全再現する:
+        "{icon} {label}:"        （見出し）
+        "• {name}{_SEP}{description}"  （各要素）
+    entities が空のときは何も追記しない（呼び出し側で空判定済み）。
+    """
+    icon = section["icon"]
+    label = section["label"]
+    name_key = section["name_key"]
+    desc_key = section["desc_key"]
+    lines.append(f"{icon} {label}:")
+    for entity in entities:
+        lines.append(f"• {entity.get(name_key, '')}{_SEP}{entity.get(desc_key, '')}")
+
+
+def _append_entity_html(parts: list, section: dict, entities: list) -> None:
+    """HTML 版で1つのエンティティセクションを parts に追記する。
+
+    section は _ENTITY_SECTIONS の要素 dict（_append_entity_text と鏡像のシグネチャ）。
+    wrapper div クラス・item クラス・name span クラスを section から取り、
+    現行の出力文字列を一字一句再現する。entities が空のときは呼び出さない。
+    """
+    icon = section["icon"]
+    label = section["label"]
+    name_key = section["name_key"]
+    desc_key = section["desc_key"]
+    wrapper_css = section["wrapper_css"]
+    item_css = section["item_css"]
+    name_css = section["name_css"]
+    parts.append(f'<div class="{wrapper_css}">{icon} {label}:')
+    for entity in entities:
+        parts.append(
+            f'<div class="{item_css}"><span class="{name_css}">{html.escape(entity.get(name_key, ""))}</span>{_SEP}{html.escape(entity.get(desc_key, ""))}</div>'
+        )
+    parts.append("</div>")
 
 
 def _format_price_line(stock: dict) -> str | None:
@@ -34,10 +108,13 @@ def _format_price_line(stock: dict) -> str | None:
     if price is None:
         return None
     pct = stock.get("change_pct", 0.0)
-    if pct > 0:
-        pct_str = f"+{pct:.1f}%"
-    elif pct < 0:
-        pct_str = f"{pct:.1f}%"  # マイナス符号は f-string が付与する
+    # 表示桁（小数1桁）に丸めてから符号を決める。これにより -0.04%/+0.04% のような
+    # ゼロ近傍が "-0.0%"/"+0.0%" にならず "±0.0%" に是正される。
+    rounded = round(pct, 1)
+    if rounded > 0:
+        pct_str = f"+{rounded:.1f}%"
+    elif rounded < 0:
+        pct_str = f"{rounded:.1f}%"  # マイナス符号は f-string が付与する
     else:
         pct_str = "±0.0%"
     return f"現在値 {price:,.0f}円（前日比 {pct_str}）"
@@ -51,61 +128,49 @@ def _build_text(edition: str, result: dict, date_str: str) -> str:
     """
     # lines リストに行を追加して最後に改行で結合する方式にすると
     # 長い文字列の連結より効率的でコードも読みやすい
-    lines = [f"📰 [{edition}] {date_str} 主要ニュース", ""]
+    lines = [f"{_ICON_HEADER} [{edition}] {date_str} 主要ニュース", ""]
 
     # 記事要約セクション
     for item in result.get("summaries", []):
         cat = item.get("category", "")
-        icon = CATEGORY_ICONS.get(cat, "📄")
+        icon = CATEGORY_ICONS.get(cat, _ICON_DEFAULT_CAT)
         lines.append(f"━━ {icon} {cat} ━━")
         lines.append(f"【{item['title']}】")
         lines.append(item["summary"])
         # 背景（記事ごと・内容がある場合のみ表示）
         background = item.get("background", "")
         if background:
-            lines.append(f"🔍 背景: {background}")
-        # 企業紹介（記事ごと・内容がある場合のみ表示）
-        companies = item.get("companies", [])
-        if companies:
-            lines.append("🏢 企業紹介:")
-            for c in companies:
-                lines.append(f"• {c.get('name', '')} — {c.get('description', '')}")
-        # 人物紹介（記事ごと・内容がある場合のみ表示）
-        people = item.get("people", [])
-        if people:
-            lines.append("👤 人物紹介:")
-            for p in people:
-                lines.append(f"• {p.get('name', '')} — {p.get('description', '')}")
-        # キーワード（記事ごと・内容がある場合のみ表示）
-        keywords = item.get("keywords", [])
-        if keywords:
-            lines.append("🏷 キーワード:")
-            for kw in keywords:
-                lines.append(f"• {kw.get('word', '')} — {kw.get('note', '')}")
-        lines.append(f"🔗 {item['url']}")
-        lines.append(f"📰 {item.get('source', '')}")
+            lines.append(f"{_ICON_BACKGROUND} 背景: {background}")
+        # 企業紹介・人物紹介・キーワードの3セクション（記事ごと・内容がある場合のみ表示）
+        # _ENTITY_SECTIONS の順（companies → people → keywords）で描画する
+        for section in _ENTITY_SECTIONS:
+            entities = item.get(section["field"], [])
+            if entities:
+                _append_entity_text(lines, section, entities)
+        lines.append(f"{_ICON_LINK} {item['url']}")
+        lines.append(f"{_ICON_HEADER} {item.get('source', '')}")
         lines.append("")
 
     # 生活への影響セクション（全体で1個・内容がある場合のみ表示）
     life_impact = result.get("life_impact", "")
     if life_impact:
-        lines.append("━━ 🏠 生活への影響 ━━")
+        lines.append(f"━━ {_ICON_LIFE} 生活への影響 ━━")
         lines.append(life_impact)
         lines.append("")
 
     # 注目銘柄候補セクション（銘柄がある場合のみ表示）
     stock_picks = result.get("stock_picks", [])
     if stock_picks:
-        lines.append("━━ 📊 注目銘柄候補 ━━")
+        lines.append(f"━━ {_ICON_STOCKS} 注目銘柄候補 ━━")
         lines.append("※投資判断はご自身の責任でお願いします")
-        for s in stock_picks:
-            lines.append(f"• {s['ticker']} {s['name']} {s['direction']}")
-            lines.append(f"  {s['reason']}")
+        for stock in stock_picks:
+            lines.append(f"• {stock['ticker']} {stock['name']} {stock['direction']}")
+            lines.append(f"  {stock['reason']}")
             # 現在値・前日比（取得できた銘柄のみ・reason と根拠の間に表示）
-            price_line = _format_price_line(s)
+            price_line = _format_price_line(stock)
             if price_line:
                 lines.append(f"  {price_line}")
-            lines.append(f"  根拠: {s['source_headline']}")
+            lines.append(f"  根拠: {stock['source_headline']}")
         lines.append("")
 
     return "\n".join(lines)
@@ -143,13 +208,13 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         ".stock-price{font-size:0.95em;color:#1a4d8f;margin:2px 0}",
         ".article-source{font-size:0.8em;color:#888;margin-top:2px}",
         "</style></head><body>",
-        f"<h1>📰 [{edition}] {date_str} 主要ニュース</h1>",
+        f"<h1>{_ICON_HEADER} [{edition}] {date_str} 主要ニュース</h1>",
     ]
 
     # 記事要約セクション
     for item in result.get("summaries", []):
         cat = item.get("category", "")
-        icon = CATEGORY_ICONS.get(cat, "📄")
+        icon = CATEGORY_ICONS.get(cat, _ICON_DEFAULT_CAT)
         # html.escape() でHTMLエスケープ（特殊文字をHTMLの表示文字に変換）
         safe_cat = html.escape(cat)
         safe_title = html.escape(item["title"])
@@ -165,57 +230,37 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         # 背景（記事ごと・内容がある場合のみ表示）
         background = item.get("background", "")
         if background:
-            parts.append(f'<div class="article-background">🔍 背景: {html.escape(background)}</div>')
-        # 企業紹介（記事ごと・内容がある場合のみ表示）
-        companies = item.get("companies", [])
-        if companies:
-            parts.append('<div class="article-entities">🏢 企業紹介:')
-            for c in companies:
-                parts.append(
-                    f'<div class="ent"><span class="ent-name">{html.escape(c.get("name", ""))}</span> — {html.escape(c.get("description", ""))}</div>'
-                )
-            parts.append("</div>")
-        # 人物紹介（記事ごと・内容がある場合のみ表示）
-        people = item.get("people", [])
-        if people:
-            parts.append('<div class="article-entities">👤 人物紹介:')
-            for p in people:
-                parts.append(
-                    f'<div class="ent"><span class="ent-name">{html.escape(p.get("name", ""))}</span> — {html.escape(p.get("description", ""))}</div>'
-                )
-            parts.append("</div>")
-        # キーワード（記事ごと・内容がある場合のみ表示）
-        keywords = item.get("keywords", [])
-        if keywords:
-            parts.append('<div class="article-keywords">🏷 キーワード:')
-            for kw in keywords:
-                parts.append(
-                    f'<div class="kw"><span class="kw-word">{html.escape(kw.get("word", ""))}</span> — {html.escape(kw.get("note", ""))}</div>'
-                )
-            parts.append("</div>")
-        parts.append(f'<a href="{safe_url}">🔗 記事を読む</a>')
-        parts.append(f'<div class="article-source">📰 {html.escape(item.get("source", ""))}</div>')
+            parts.append(f'<div class="article-background">{_ICON_BACKGROUND} 背景: {html.escape(background)}</div>')
+        # 企業紹介・人物紹介・キーワードの3セクション（記事ごと・内容がある場合のみ表示）
+        # _ENTITY_SECTIONS の順（companies → people → keywords）で描画する。
+        # CSS クラスの差異（keywords だけ別系統）は section が吸収する。
+        for section in _ENTITY_SECTIONS:
+            entities = item.get(section["field"], [])
+            if entities:
+                _append_entity_html(parts, section, entities)
+        parts.append(f'<a href="{safe_url}">{_ICON_LINK} 記事を読む</a>')
+        parts.append(f'<div class="article-source">{_ICON_HEADER} {html.escape(item.get("source", ""))}</div>')
         parts.append("</div>")
 
     # 生活への影響セクション（全体で1個・内容がある場合のみ表示）
     life_impact = result.get("life_impact", "")
     if life_impact:
-        parts.append(f'<div class="life"><h2>🏠 生活への影響</h2>{html.escape(life_impact)}</div>')
+        parts.append(f'<div class="life"><h2>{_ICON_LIFE} 生活への影響</h2>{html.escape(life_impact)}</div>')
 
     # 注目銘柄候補セクション
     stock_picks = result.get("stock_picks", [])
     if stock_picks:
-        parts.append('<div class="stocks"><h2>📊 注目銘柄候補</h2>')
+        parts.append(f'<div class="stocks"><h2>{_ICON_STOCKS} 注目銘柄候補</h2>')
         parts.append('<div class="stock-disclaimer">※投資判断はご自身の責任でお願いします</div>')
-        for s in stock_picks:
+        for stock in stock_picks:
             parts.append('<div class="stock-item">')
-            parts.append(f'<div class="stock-meta">{html.escape(s["ticker"])} {html.escape(s["name"])} {html.escape(s["direction"])}</div>')
-            parts.append(f'<div>{html.escape(s["reason"])}</div>')
+            parts.append(f'<div class="stock-meta">{html.escape(stock["ticker"])} {html.escape(stock["name"])} {html.escape(stock["direction"])}</div>')
+            parts.append(f'<div>{html.escape(stock["reason"])}</div>')
             # 現在値・前日比（取得できた銘柄のみ）。整形後の文字列も html.escape する
-            price_line = _format_price_line(s)
+            price_line = _format_price_line(stock)
             if price_line:
                 parts.append(f'<div class="stock-price">{html.escape(price_line)}</div>')
-            parts.append(f'<div>根拠: {html.escape(s["source_headline"])}</div>')
+            parts.append(f'<div>根拠: {html.escape(stock["source_headline"])}</div>')
             parts.append("</div>")
         parts.append("</div>")
 

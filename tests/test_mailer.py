@@ -3,7 +3,12 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from mailer import _build_text, _build_html  # noqa: E402
+from mailer import (  # noqa: E402
+    _build_text,
+    _build_html,
+    _format_price_line,
+    _ENTITY_SECTIONS,
+)
 
 
 def _item_full():
@@ -223,3 +228,45 @@ def test_build_html_no_price_no_line():
     html_out = _build_html("朝刊", result, "2026年6月23日")
     assert 'class="stock-price"' not in html_out
     assert "現在値" not in html_out
+
+
+# --- _format_price_line ゼロ近傍境界（±0.0% 是正） ---
+
+
+def test_format_price_line_near_zero_negative_shows_pm_zero():
+    # -0.04% は四捨五入で -0.0% になってしまうため ±0.0% に是正する
+    line = _format_price_line(_pick(price=2700.0, change_pct=-0.04))
+    assert "（前日比 ±0.0%）" in line
+    assert "-0.0%" not in line
+
+
+def test_format_price_line_near_zero_positive_shows_pm_zero():
+    # +0.04% も四捨五入で +0.0% になるため ±0.0% に是正する
+    line = _format_price_line(_pick(price=2700.0, change_pct=0.04))
+    assert "（前日比 ±0.0%）" in line
+    assert "+0.0%" not in line
+
+
+def test_build_text_pick_without_change_key_renders():
+    # change デッドフィールドが無い pick でも問題なく描画される
+    pick = _pick(price=2750.0, change_pct=1.8)
+    assert "change" not in pick
+    result = {"summaries": [], "stock_picks": [pick]}
+    text = _build_text("朝刊", result, "2026年6月23日")
+    assert "現在値 2,750円（前日比 +1.8%）" in text
+    assert "根拠: トヨタ過去最高益" in text
+
+
+def test_entity_section_css_classes_defined_in_style_block():
+    # _ENTITY_SECTIONS に書かれた CSS クラス名が <style> ブロックに必ず存在することを検証する。
+    # 片方だけ改名すると CSS が無言で外れる乖離を、このテストで検知する。
+    html_out = _build_html("朝刊", {"summaries": []}, "2026年6月23日")
+    start = html_out.index("<style>")
+    end = html_out.index("</style>")
+    style_block = html_out[start:end]
+    for section in _ENTITY_SECTIONS:
+        for css_key in ("wrapper_css", "item_css", "name_css"):
+            cls = section[css_key]
+            assert (
+                f".{cls}" in style_block
+            ), f"CSS クラス .{cls}（{section['field']} の {css_key}）が <style> に定義されていません"

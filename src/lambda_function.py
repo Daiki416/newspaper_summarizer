@@ -60,18 +60,19 @@ from storage import save_delivery
 from quotes import enrich_stock_prices
 
 
-def _resolve_edition(event: dict) -> str:
+def _resolve_edition(event: dict, now: datetime) -> str:
     """event の指定または現在時刻（JST）から朝刊/夕刊を決定する。
 
     event["edition"] が "morning"→朝刊 / "evening"→夕刊。
-    未指定なら現在時刻（JST）から detect_edition で自動判定する。
+    未指定なら渡された now（JST）から detect_edition で自動判定する。
+    now は handler で一度だけ取得した値を受け取る（save_delivery と同一時刻を共有）。
     """
     edition_arg = event.get("edition")
     if edition_arg == "morning":
         return "朝刊"
     if edition_arg == "evening":
         return "夕刊"
-    return detect_edition(datetime.now(JST).hour)
+    return detect_edition(now.hour)
 
 
 def handler(event, context):
@@ -87,7 +88,9 @@ def handler(event, context):
     # EventBridge の input で "24"（文字列）が渡ることがあるため int に正規化する
     # 朝1本配信のため、未指定時は直近24時間を対象にする
     hours = int(event.get("hours", 24))
-    edition = _resolve_edition(event)
+    # 現在時刻（JST）は一度だけ取得し、edition 判定と S3 保存キーで共有する
+    now = datetime.now(JST)
+    edition = _resolve_edition(event, now)
 
     print(f"[{edition}] ニュース取得中... (hours={hours})")
     articles = fetch_all(hours=hours)
@@ -103,7 +106,7 @@ def handler(event, context):
     print("Claude APIで要約中...")
     result = summarize(articles)
 
-    # 注目銘柄に Stooq の終値・前日比をベストエフォートでマージする（send の前）。
+    # 注目銘柄に Yahoo の現在値・前日比をベストエフォートでマージする（send の前）。
     # S3 保存は send の後なので、S3 には価格込みで保存される（許容）。
     result["stock_picks"] = enrich_stock_prices(result.get("stock_picks", []))
 
@@ -112,12 +115,12 @@ def handler(event, context):
 
     # ベストエフォートでS3へ蓄積保存（失敗しても配信成功は壊さない）
     try:
-        key = save_delivery(result, edition, datetime.now(JST))
+        key = save_delivery(result, edition, now)
         if key:
             print(f"S3保存: bucket={os.environ.get('CACHE_BUCKET')} key={key}")
-    except Exception as e:
+    except Exception as error:
         # 秘密情報を出さない。例外型名のみ（バケット名は出してよいが API キー等は厳禁）
-        print(f"S3保存に失敗（配信は成功）: {type(e).__name__}")
+        print(f"S3保存に失敗（配信は成功）: {type(error).__name__}")
 
     # 戻り値には秘密情報を含めない（最小限の実行結果のみ）
     return {

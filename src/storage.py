@@ -2,9 +2,13 @@
 # 純粋関数群。CACHE_BUCKET が設定されているときのみ動作し、未設定なら完全 no-op。
 # 秘密情報は一切扱わない（保存対象は summarize の result のみ）。
 
-import os
 import json
+import os
 from datetime import datetime
+
+# S3 オブジェクトキーの先頭プレフィックスと拡張子（散在防止のため定数化）
+KEY_PREFIX = "deliveries"
+KEY_EXT = ".json"
 
 
 def normalize_edition(edition: str) -> str:
@@ -26,10 +30,16 @@ def build_key(now_jst: datetime, edition: str) -> str:
 
     'deliveries/YYYY/MM/YYYY-MM-DD-{edition}.json' を返す。
     edition は normalize 済みを受け取る前提。月はゼロ埋めされる。
+
+    契約: now_jst は tz-aware（JST）な datetime を受け取る。naive な datetime
+    （tzinfo is None）が渡された場合は ValueError を送出する（暗黙の UTC 解釈で
+    日付がずれた S3 キーが生成されるのを防ぐ明示エラー方式）。
     """
+    if now_jst.tzinfo is None:
+        raise ValueError("build_key には tz-aware な datetime を渡してください（naive 不可）")
     return (
-        f"deliveries/{now_jst:%Y}/{now_jst:%m}/"
-        f"{now_jst:%Y-%m-%d}-{edition}.json"
+        f"{KEY_PREFIX}/{now_jst:%Y}/{now_jst:%m}/"
+        f"{now_jst:%Y-%m-%d}-{edition}{KEY_EXT}"
     )
 
 

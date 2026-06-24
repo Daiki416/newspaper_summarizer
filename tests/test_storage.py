@@ -120,3 +120,30 @@ def test_save_delivery_propagates_s3_error():
     now = datetime(2026, 6, 19, 7, 0, 0, tzinfo=JST)
     with pytest.raises(RuntimeError):
         save_delivery({"a": 1}, "morning", now, bucket="my-bucket", s3_client=client)
+
+
+# --- naive datetime ガード ---
+
+
+def test_build_key_naive_datetime_raises():
+    naive = datetime(2026, 6, 19, 7, 0, 0)  # tzinfo なし
+    with pytest.raises(ValueError):
+        build_key(naive, "morning")
+
+
+def test_save_delivery_naive_datetime_raises():
+    client = DummyS3Client()
+    naive = datetime(2026, 6, 19, 7, 0, 0)  # tzinfo なし
+    with pytest.raises(ValueError):
+        save_delivery({"a": 1}, "朝刊", naive, bucket="my-bucket", s3_client=client)
+
+
+# --- 号外（unknown）経由のキー ---
+
+
+def test_save_delivery_unknown_edition_key():
+    client = DummyS3Client()
+    now = datetime(2026, 6, 19, 7, 0, 0, tzinfo=JST)
+    key = save_delivery({"a": 1}, "号外", now, bucket="my-bucket", s3_client=client)
+    assert key == "deliveries/2026/06/2026-06-19-unknown.json"
+    assert client.calls[0]["Key"] == "deliveries/2026/06/2026-06-19-unknown.json"

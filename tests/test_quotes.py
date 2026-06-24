@@ -6,11 +6,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
 
+import quotes  # noqa: E402
 from quotes import (  # noqa: E402
     to_yahoo_symbol,
     parse_chart_json,
     compute_change,
     enrich_stock_prices,
+    fetch_quote,
 )
 
 
@@ -57,6 +59,21 @@ def test_to_yahoo_symbol_non_digit_only_is_none():
     assert to_yahoo_symbol(".T") is None
 
 
+# --- _CODE_RE 厳密化境界（無効ティッカーは None） ---
+
+
+def test_to_yahoo_symbol_five_digits_is_none():
+    assert to_yahoo_symbol("12345") is None
+
+
+def test_to_yahoo_symbol_trailing_letter_is_none():
+    assert to_yahoo_symbol("6472X") is None
+
+
+def test_to_yahoo_symbol_too_many_digits_is_none():
+    assert to_yahoo_symbol("6472999") is None
+
+
 # --- parse_chart_json ---
 
 
@@ -87,8 +104,9 @@ def _chart_json(price=432.5, prev=439.7, ts=1750291200, currency="JPY"):
 def test_parse_chart_json_normal():
     out = parse_chart_json(_chart_json())
     assert out["price"] == pytest.approx(432.5)
-    assert out["change"] == pytest.approx(432.5 - 439.7)
     assert out["change_pct"] == pytest.approx((432.5 - 439.7) / 439.7 * 100)
+    # change デッドフィールドはマージしない（戻り dict に含めない）
+    assert "change" not in out
 
 
 def test_parse_chart_json_as_of_is_jst_date():
@@ -242,3 +260,69 @@ def test_enrich_returns_input_on_unexpected_error():
     picks = ["not a dict"]
     out = enrich_stock_prices(picks, fetcher=lambda s, *, timeout=10.0: None)
     assert out == picks
+
+
+# --- fetch_quote（urlopen をパッチ・実 HTTP 不使用） ---
+
+
+class _FakeResp:
+    """urlopen が返すレスポンス相当。with 文と read() を提供する。"""
+
+    def __init__(self, raw: bytes):
+        self._raw = raw
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        return self._raw
+
+
+def test_fetch_quote_sets_user_agent_and_timeout(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["req"] = req
+        captured["timeout"] = timeout
+        return _FakeResp(_chart_json().encode("utf-8"))
+
+    monkeypatch.setattr(quotes.urllib.request, "urlopen", fake_urlopen)
+    out = fetch_quote("6472.T", timeout=7.5)
+
+    assert out is not None
+    # UA ヘッダが Request に付与されている（urllib はヘッダ名を title-case 化する）
+    assert captured["req"].get_header("User-agent") == "Mozilla/5.0"
+    # urlopen に timeout が渡る
+    assert captured["timeout"] == 7.5
+
+
+def test_fetch_quote_decode_errors_replace(monkeypatch):
+    # 不正バイト列でも errors="replace" でデコードし、後段 parse に進める
+    valid = _chart_json().encode("utf-8")
+    raw = valid + b"\xff\xfe"  # 末尾に不正バイトを付与（JSON 的には壊れる）
+
+    def fake_urlopen(req, timeout=None):
+        return _FakeResp(raw)
+
+    monkeypatch.setattr(quotes.urllib.request, "urlopen", fake_urlopen)
+    # デコード自体は例外を出さない（replace 経路）。壊れた JSON なので parse は None。
+    assert fetch_quote("6472.T") is None
+
+
+def test_fetch_quote_invalid_json_returns_none(monkeypatch):
+    def fake_urlopen(req, timeout=None):
+        return _FakeResp(b"{not valid json")
+
+    monkeypatch.setattr(quotes.urllib.request, "urlopen", fake_urlopen)
+    assert fetch_quote("6472.T") is None
+
+
+def test_fetch_quote_urlopen_raises_returns_none(monkeypatch):
+    def fake_urlopen(req, timeout=None):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(quotes.urllib.request, "urlopen", fake_urlopen)
+    assert fetch_quote("6472.T") is None
