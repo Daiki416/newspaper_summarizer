@@ -10,6 +10,12 @@ from datetime import datetime
 KEY_PREFIX = "deliveries"
 KEY_EXT = ".json"
 
+# S3 へ保存する result のトップレベルキーのホワイトリスト。
+# 将来 result に想定外のフィールド（デバッグ情報等）が混入しても保存対象を絞る保険。
+# stock_picks 要素内の enrich 済みフィールド（price/change_pct/as_of/yahoo_symbol）は
+# トップレベルではないためこのフィルタの対象外で、そのまま保持される。
+_SAVE_TOP_LEVEL_KEYS = ("summaries", "life_impact", "stock_picks")
+
 
 def normalize_edition(edition: str) -> str:
     """朝刊→'morning' / 夕刊→'evening'。
@@ -63,7 +69,10 @@ def save_delivery(
         return None
 
     key = build_key(now_jst, normalize_edition(edition))
-    body = json.dumps(result, ensure_ascii=False).encode("utf-8")
+    # トップレベルをホワイトリストに限定して保存する（存在するキーのみ）。
+    # 要素内（stock_picks の enrich フィールド等）はフィルタせずそのまま保持する。
+    filtered = {k: result[k] for k in _SAVE_TOP_LEVEL_KEYS if k in result}
+    body = json.dumps(filtered, ensure_ascii=False).encode("utf-8")
 
     if s3_client is None:
         import boto3

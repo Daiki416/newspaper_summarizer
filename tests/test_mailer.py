@@ -257,6 +257,60 @@ def test_build_text_pick_without_change_key_renders():
     assert "根拠: トヨタ過去最高益" in text
 
 
+def test_build_text_missing_required_keys_no_keyerror():
+    # title/summary/url/source など必須キーが欠落しても KeyError で落ちず空文字で描画される
+    result = {"summaries": [{"category": "国際"}], "stock_picks": []}
+    text = _build_text("朝刊", result, "2026年6月23日")
+    # クラッシュせず見出し（カテゴリ）は出る
+    assert "国際" in text
+
+
+def test_build_html_missing_required_keys_no_keyerror():
+    result = {"summaries": [{"category": "国際"}], "stock_picks": []}
+    html_out = _build_html("朝刊", result, "2026年6月23日")
+    assert "国際" in html_out
+
+
+def test_build_text_stock_missing_keys_no_keyerror():
+    # stock_picks 要素の必須キーが欠落しても KeyError で落ちない
+    result = {"summaries": [], "stock_picks": [{}]}
+    text = _build_text("朝刊", result, "2026年6月23日")
+    assert "注目銘柄候補" in text
+
+
+def test_build_html_stock_missing_keys_no_keyerror():
+    result = {"summaries": [], "stock_picks": [{}]}
+    html_out = _build_html("朝刊", result, "2026年6月23日")
+    assert "注目銘柄候補" in html_out
+
+
+# --- stock_picks 描画の項目順固定（回帰） ---
+
+
+def test_build_text_stock_item_order_fixed():
+    # text 版: ticker/name/direction → reason → price_line → 根拠 の順で出現する
+    pick = _pick(price=2750.0, change_pct=1.8)
+    result = {"summaries": [], "stock_picks": [pick]}
+    text = _build_text("朝刊", result, "2026年6月23日")
+    i_meta = text.index("7203")
+    i_reason = text.index("好決算のため")
+    i_price = text.index("現在値 2,750円（前日比 +1.8%）")
+    i_basis = text.index("根拠: トヨタ過去最高益")
+    assert i_meta < i_reason < i_price < i_basis
+
+
+def test_build_html_stock_item_order_fixed():
+    # html 版: stock-meta → reason → stock-price → 根拠 の順で出現する
+    pick = _pick(price=2750.0, change_pct=1.8)
+    result = {"summaries": [], "stock_picks": [pick]}
+    html_out = _build_html("朝刊", result, "2026年6月23日")
+    i_meta = html_out.index('class="stock-meta"')
+    i_reason = html_out.index("好決算のため")
+    i_price = html_out.index('class="stock-price"')
+    i_basis = html_out.index("根拠: トヨタ過去最高益")
+    assert i_meta < i_reason < i_price < i_basis
+
+
 def test_entity_section_css_classes_defined_in_style_block():
     # _ENTITY_SECTIONS に書かれた CSS クラス名が <style> ブロックに必ず存在することを検証する。
     # 片方だけ改名すると CSS が無言で外れる乖離を、このテストで検知する。
@@ -270,3 +324,37 @@ def test_entity_section_css_classes_defined_in_style_block():
             assert (
                 f".{cls}" in style_block
             ), f"CSS クラス .{cls}（{section['field']} の {css_key}）が <style> に定義されていません"
+
+
+def test_style_block_entity_classes_all_defined_in_entity_sections():
+    # 逆方向整合: <style> 内のエンティティ用クラスに _ENTITY_SECTIONS 未定義のものが無いこと。
+    # .article / .life / .stocks 等エンティティ以外のクラスは対象外（プレフィックスで限定）。
+    import re
+
+    html_out = _build_html("朝刊", {"summaries": []}, "2026年6月23日")
+    start = html_out.index("<style>")
+    end = html_out.index("</style>")
+    style_block = html_out[start:end]
+
+    # _ENTITY_SECTIONS が宣言する全 CSS クラス名の集合
+    declared = set()
+    for section in _ENTITY_SECTIONS:
+        for css_key in ("wrapper_css", "item_css", "name_css"):
+            declared.add(section[css_key])
+
+    # エンティティ用クラスのプレフィックス（これに合致するものだけ検査対象にする）。
+    # _ENTITY_SECTIONS の宣言クラス名から動的に導出し、css 系統追加時の手修正漏れを防ぐ。
+    entity_prefixes = tuple(declared)
+
+    # style ブロックからクラストークンを抽出（".foo" / ".foo-bar" 形式）
+    found = set(re.findall(r"\.([A-Za-z][\w-]*)", style_block))
+    entity_classes = {
+        cls
+        for cls in found
+        if any(cls == p or cls.startswith(p) for p in entity_prefixes)
+    }
+
+    undeclared = entity_classes - declared
+    assert not undeclared, (
+        f"<style> にあるが _ENTITY_SECTIONS 未定義のエンティティ用クラス: {undeclared}"
+    )

@@ -2,8 +2,6 @@
 # 記事テキストをAIに送り、各記事ごとの要約・背景・企業紹介・人物紹介・キーワードと、
 # 全体の生活への影響・注目銘柄を決まった形式（構造化データ）で返してもらいます。
 
-import json
-
 import anthropic
 from json_repair import repair_json
 
@@ -151,10 +149,8 @@ _TOOL = {
 }
 
 
-# keywords / companies / people は任意フィールド（該当時のみ・無ければ空配列）。
-# 3フィールドを同一ポリシーで正規化するため、正規化ループからのみ参照する定数。
-# （_TOOL スキーマは companies/people={name,description} と keywords={word,note} で
-#  items 形状が異なるため、スキーマ側は無理に共通化せずこの定数は正規化に限定する）
+# 任意フィールド（無ければ空配列）。正規化ループからのみ参照する。
+# 設計経緯（keywords だけ CSS 別系統である理由等）は _normalize_entity_fields の docstring 参照。
 _OPTIONAL_LIST_FIELDS = ("keywords", "companies", "people")
 
 
@@ -170,6 +166,10 @@ def _normalize_entity_fields(summaries: list) -> None:
 
     これにより mailer 側の `.get('word')` 等が AttributeError を起こして
     朝刊/夕刊が丸ごと配信失敗するのを防ぐ。
+
+    設計メモ: _TOOL スキーマ上 companies/people は {name,description}、keywords は
+    {word,note} と items 形状が異なる。3フィールドは正規化ポリシー（dict のみ残し
+    値を str 化）が共通なため本関数で一括処理し、形状差はスキーマ側に閉じている。
     """
     for item in summaries:
         if not isinstance(item, dict):
@@ -178,12 +178,13 @@ def _normalize_entity_fields(summaries: list) -> None:
             item.setdefault(field, [])
             if isinstance(item[field], str):
                 # AIが "該当なし" / "なし" / "" / 空白のみ といった
-                # 「JSON配列でない素の文字列」を返すと repair_json が '' を返し
-                # json.loads('') が JSONDecodeError を送出する。
-                # 防御処理自体がクラッシュ源にならないよう失敗時は空配列にする。
+                # 「JSON配列でない素の文字列」を返すケースに備える。
+                # repair_json(..., return_objects=True) は修復後の Python オブジェクト
+                # を直接返す（json.loads との二重パース不要）。素の文字列は '' を返し、
+                # 直後の list 判定で [] に落ちるため、防御処理自体はクラッシュしない。
                 try:
-                    item[field] = json.loads(repair_json(item[field]))
-                except (json.JSONDecodeError, ValueError, TypeError):
+                    item[field] = repair_json(item[field], return_objects=True)
+                except (ValueError, TypeError):
                     item[field] = []
             if not isinstance(item[field], list):
                 item[field] = []
@@ -191,10 +192,21 @@ def _normalize_entity_fields(summaries: list) -> None:
             # mailer 側の html.escape() は str を前提とするため、
             # 値が int 等でも AttributeError で落ちないよう正規化する。
             item[field] = [
-                {k: str(v) for k, v in x.items()}
-                for x in item[field]
-                if isinstance(x, dict)
+                {k: str(v) for k, v in entity.items()}
+                for entity in item[field]
+                if isinstance(entity, dict)
             ]
+
+
+def _sanitize(text: str) -> str:
+    """AIへ渡すテキストの「スマートクォート」を通常のダブルクォート（"）に統一する。
+
+    スマートクォートはJSONを壊す原因になるため事前に除去しておく。
+    変換対象: U+201C / U+201D → U+0022（"）。
+    ※エディタ/linter が全角クォートを ASCII に正規化して no-op 化するのを防ぐため、
+      置換対象は \\u エスケープ（ASCII表記）で明示する。
+    """
+    return text.replace("\u201c", '"').replace("\u201d", '"')
 
 
 def summarize(articles_by_category: dict[str, list[dict]]) -> dict:
@@ -209,25 +221,18 @@ def summarize(articles_by_category: dict[str, list[dict]]) -> dict:
     if not articles_by_category:
         return {"summaries": [], "life_impact": "", "stock_picks": []}
 
-    def _sanitize(text: str) -> str:
-        # AIへ渡すテキストに含まれる「スマートクォート」（""）を
-        # 通常のダブルクォート（"）に統一する。
-        # スマートクォートはJSONを壊す原因になるため事前に除去しておく。
-        # 変換対象: U+201C（“）/ U+201D（”）→ U+0022（"）。
-        return text.replace('"', '"').replace('"', '"')
-
     # --- AIへ送るプロンプト（入力テキスト）を組み立てる ---
     # Markdown形式（## カテゴリ、### 記事タイトル）で構造化すると
     # AIが内容を理解しやすくなる
     lines = []
     for category, articles in articles_by_category.items():
         lines.append(f"\n## {category}")
-        for a in articles:
-            lines.append(f"### {_sanitize(a['title'])}")
-            lines.append(f"URL: {a['url']}")
-            lines.append(f"Source: {a.get('source', '')}")
-            if a["summary"]:
-                lines.append(_sanitize(a["summary"]))
+        for article in articles:
+            lines.append(f"### {_sanitize(article['title'])}")
+            lines.append(f"URL: {article['url']}")
+            lines.append(f"Source: {article.get('source', '')}")
+            if article["summary"]:
+                lines.append(_sanitize(article["summary"]))
 
     user_content = "\n".join(lines)
 
@@ -275,18 +280,15 @@ def summarize(articles_by_category: dict[str, list[dict]]) -> dict:
     for block in response.content:
         if block.type == "tool_use" and block.name == "output_news_summary":
             result = block.input
-            # まれにAIがリストをJSON文字列として返すことがある
-            # json_repair はそのような壊れたJSONも修復して解析できるライブラリ
+            # AIがリストをJSON文字列で返すことがあるため repair_json で修復する。
             for key in ("summaries", "stock_picks"):
                 result.setdefault(key, [])
                 if isinstance(result.get(key), str):
-                    result[key] = json.loads(repair_json(result[key]))
-            # 各記事の keywords を正規化する。
-            # AIの出力が安定しないケースに備え、以下を防御的に処理する:
-            #   - summaries の要素が非dict（str等）→ スキップ（AttributeError防止）
-            #   - keywords が文字列 → 修復して解析しリスト化する
-            #   - keywords の要素が非dict（["インフレ", ...] のような単純なstr）
-            #     → 除去し、必ずdictのリストにする（mailer側のkw.get()クラッシュ防止）
+                    try:
+                        result[key] = repair_json(result[key], return_objects=True)
+                    except (ValueError, TypeError):
+                        result[key] = []
+            # keywords/companies/people を防御正規化（詳細は _normalize_entity_fields の docstring 参照）。
             _normalize_entity_fields(result["summaries"])
             # 全体の生活への影響が欠落していても mailer 側へ None が渡らないようにする
             result.setdefault("life_impact", "")

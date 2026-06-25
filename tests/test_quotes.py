@@ -74,13 +74,25 @@ def test_to_yahoo_symbol_too_many_digits_is_none():
     assert to_yahoo_symbol("6472999") is None
 
 
+def test_to_yahoo_symbol_underscore_suffix_is_none():
+    # suffix は ASCII 英字のみ許容。"6472._" は \w の _ 許容を排除したため弾く
+    assert to_yahoo_symbol("6472._") is None
+
+
+def test_to_yahoo_symbol_digit_suffix_is_none():
+    # suffix に数字は許さない（[A-Za-z]+ のみ）
+    assert to_yahoo_symbol("6472.1") is None
+
+
 # --- parse_chart_json ---
 
 
-def _chart_json(price=432.5, prev=439.7, ts=1750291200, currency="JPY"):
+def _chart_json(price=432.5, prev=439.7, ts=1750291200):
     """Yahoo chart API レスポンス相当の JSON 文字列を組み立てる。
 
     ts=1750291200 は 2025-06-19 09:00 JST 相当（テストでは as_of 日付の検証に使う）。
+    注: 本体 parse_chart_json は currency を読まない（JPY 以外の扱いは将来検討）ため、
+    レスポンスにも currency は含めない。
     """
     return json.dumps(
         {
@@ -91,7 +103,6 @@ def _chart_json(price=432.5, prev=439.7, ts=1750291200, currency="JPY"):
                             "regularMarketPrice": price,
                             "chartPreviousClose": prev,
                             "regularMarketTime": ts,
-                            "currency": currency,
                         }
                     }
                 ],
@@ -251,6 +262,46 @@ def test_enrich_us_ticker_skipped():
     assert "price" not in out[0]
 
 
+def test_enrich_multiple_picks_correspondence_preserved():
+    # 並列化しても pick と quote の対応がズレないことを検証する。
+    # 各シンボルに固有の price を返し、マージ先が一致するか確認する。
+    picks = [
+        {"ticker": "6472", "name": "NTN"},
+        {"ticker": "7203", "name": "トヨタ"},
+        {"ticker": "9984", "name": "SBG"},
+    ]
+    price_by_symbol = {"6472.T": 100.0, "7203.T": 200.0, "9984.T": 300.0}
+
+    def fake_fetcher(symbol, *, timeout=10.0):
+        return _quote(price_by_symbol[symbol], 0.0, 0.0)
+
+    out = enrich_stock_prices(picks, fetcher=fake_fetcher)
+    # 入力リストをそのまま返す（同一オブジェクト）
+    assert out is picks
+    assert out[0]["price"] == 100.0 and out[0]["yahoo_symbol"] == "6472.T"
+    assert out[1]["price"] == 200.0 and out[1]["yahoo_symbol"] == "7203.T"
+    assert out[2]["price"] == 300.0 and out[2]["yahoo_symbol"] == "9984.T"
+    assert out[0]["name"] == "NTN"
+
+
+def test_enrich_mixed_skip_and_success_correspondence():
+    # スキップ対象（US ティッカー）が間に挟まっても他の pick がズレない
+    picks = [
+        {"ticker": "6472", "name": "NTN"},
+        {"ticker": "AAPL", "name": "Apple"},
+        {"ticker": "7203", "name": "トヨタ"},
+    ]
+    price_by_symbol = {"6472.T": 100.0, "7203.T": 200.0}
+
+    def fake_fetcher(symbol, *, timeout=10.0):
+        return _quote(price_by_symbol[symbol], 0.0, 0.0)
+
+    out = enrich_stock_prices(picks, fetcher=fake_fetcher)
+    assert out[0]["price"] == 100.0
+    assert "price" not in out[1]  # AAPL はスキップ
+    assert out[2]["price"] == 200.0
+
+
 def test_enrich_empty_list():
     assert enrich_stock_prices([]) == []
 
@@ -277,7 +328,9 @@ class _FakeResp:
     def __exit__(self, *exc):
         return False
 
-    def read(self):
+    def read(self, amt=None):
+        # fetch_quote は resp.read(_MAX_BYTES) で上限付き読み取りを行う。
+        # テストレスポンスは小さいため amt の有無で結果は変わらない。
         return self._raw
 
 
@@ -326,3 +379,39 @@ def test_fetch_quote_urlopen_raises_returns_none(monkeypatch):
 
     monkeypatch.setattr(quotes.urllib.request, "urlopen", fake_urlopen)
     assert fetch_quote("6472.T") is None
+
+
+def test_fetch_quote_non_https_url_returns_none(monkeypatch):
+    # _YAHOO_URL が将来 http:// 等へ改変された場合、urlopen を呼ばず None を返す
+    monkeypatch.setattr(
+        quotes, "_YAHOO_URL", "http://query1.finance.yahoo.com/v8/{symbol}"
+    )
+
+    def fake_urlopen(req, timeout=None):
+        raise AssertionError("https でない URL で urlopen を呼んではいけない")
+
+    monkeypatch.setattr(quotes.urllib.request, "urlopen", fake_urlopen)
+    assert fetch_quote("6472.T") is None
+
+
+def test_fetch_quote_caps_read_at_max_bytes(monkeypatch):
+    # resp.read に _MAX_BYTES が上限として渡されることを検証する
+    captured = {}
+
+    class _CapResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, amt=None):
+            captured["amt"] = amt
+            return _chart_json().encode("utf-8")
+
+    def fake_urlopen(req, timeout=None):
+        return _CapResp()
+
+    monkeypatch.setattr(quotes.urllib.request, "urlopen", fake_urlopen)
+    assert fetch_quote("6472.T") is not None
+    assert captured["amt"] == quotes._MAX_BYTES

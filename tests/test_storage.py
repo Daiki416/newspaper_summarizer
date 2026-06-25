@@ -4,6 +4,8 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+import json  # noqa: E402
+
 import pytest  # noqa: E402
 
 from storage import normalize_edition, build_key, save_delivery  # noqa: E402
@@ -120,6 +122,55 @@ def test_save_delivery_propagates_s3_error():
     now = datetime(2026, 6, 19, 7, 0, 0, tzinfo=JST)
     with pytest.raises(RuntimeError):
         save_delivery({"a": 1}, "morning", now, bucket="my-bucket", s3_client=client)
+
+
+# --- トップレベルキーのホワイトリスト化 ---
+
+
+def test_save_delivery_whitelists_top_level_keys():
+    client = DummyS3Client()
+    now = datetime(2026, 6, 19, 7, 0, 0, tzinfo=JST)
+    result = {
+        "summaries": [{"title": "t"}],
+        "life_impact": "影響",
+        "stock_picks": [
+            {
+                "ticker": "7203",
+                "name": "トヨタ",
+                "price": 2750.0,
+                "change_pct": 1.8,
+                "as_of": "2026-06-19",
+                "yahoo_symbol": "7203.T",
+            }
+        ],
+        # 将来混入し得る想定外のトップレベルキー
+        "debug": {"prompt": "secret-ish"},
+        "internal_token": "xyz",
+    }
+    save_delivery(result, "朝刊", now, bucket="my-bucket", s3_client=client)
+    saved = json.loads(client.calls[0]["Body"].decode("utf-8"))
+
+    # トップレベルは 3 キーに限定される
+    assert set(saved.keys()) == {"summaries", "life_impact", "stock_picks"}
+    assert "debug" not in saved
+    assert "internal_token" not in saved
+    # 既存の値はそのまま保持
+    assert saved["life_impact"] == "影響"
+    # stock_picks 要素内の enrich 済みフィールドはそのまま保持（トップレベルのみのフィルタ）
+    pick = saved["stock_picks"][0]
+    assert pick["price"] == 2750.0
+    assert pick["change_pct"] == 1.8
+    assert pick["as_of"] == "2026-06-19"
+    assert pick["yahoo_symbol"] == "7203.T"
+
+
+def test_save_delivery_missing_top_level_keys_omitted():
+    # ホワイトリストキーが result に無ければ保存 dict にも入れない（空 dict 保存）
+    client = DummyS3Client()
+    now = datetime(2026, 6, 19, 7, 0, 0, tzinfo=JST)
+    save_delivery({"unexpected": 1}, "朝刊", now, bucket="my-bucket", s3_client=client)
+    saved = json.loads(client.calls[0]["Body"].decode("utf-8"))
+    assert saved == {}
 
 
 # --- naive datetime ガード ---

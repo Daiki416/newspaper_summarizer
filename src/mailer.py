@@ -34,11 +34,7 @@ _ICON_LINK = "🔗"         # 記事リンク
 _ICON_DEFAULT_CAT = "📄"  # 未知カテゴリのデフォルトアイコン
 
 # 企業紹介 / 人物紹介 / キーワードの3セクションの「表示メタ定義」。
-# field=summaries item のキー、icon=見出し絵文字、label=見出し語、
-# name_key/desc_key=各要素 dict から取り出す名前キー・説明キー。
-# 【重要】keywords だけ HTML の CSS クラスが companies/people と異なる
-# （keywords: article-keywords/kw/kw-word、companies・people: article-entities/ent/ent-name）。
-# この差異は維持する必要があるため、css 系をメタに持たせて吸収している。
+# 各 css 差異の経緯は _append_entity_html の docstring 参照。
 _ENTITY_SECTIONS = (
     {
         "field": "companies", "icon": "🏢", "label": "企業紹介",
@@ -64,8 +60,10 @@ def _append_entity_text(lines: list, section: dict, entities: list) -> None:
     section は _ENTITY_SECTIONS の要素 dict。現行出力を完全再現する:
         "{icon} {label}:"        （見出し）
         "• {name}{_SEP}{description}"  （各要素）
-    entities が空のときは何も追記しない（呼び出し側で空判定済み）。
+    entities が空なら何もしない。
     """
+    if not entities:
+        return
     icon = section["icon"]
     label = section["label"]
     name_key = section["name_key"]
@@ -80,8 +78,14 @@ def _append_entity_html(parts: list, section: dict, entities: list) -> None:
 
     section は _ENTITY_SECTIONS の要素 dict（_append_entity_text と鏡像のシグネチャ）。
     wrapper div クラス・item クラス・name span クラスを section から取り、
-    現行の出力文字列を一字一句再現する。entities が空のときは呼び出さない。
+    現行の出力文字列を一字一句再現する。entities が空なら何もしない。
+
+    css メモ: keywords だけ companies/people と CSS クラス系統が異なる
+    （keywords: article-keywords/kw/kw-word、companies・people: article-entities/ent/ent-name）。
+    この差異は出力バイト不変のため意図的に維持し、section の css フィールドで吸収する。
     """
+    if not entities:
+        return
     icon = section["icon"]
     label = section["label"]
     name_key = section["name_key"]
@@ -91,10 +95,36 @@ def _append_entity_html(parts: list, section: dict, entities: list) -> None:
     name_css = section["name_css"]
     parts.append(f'<div class="{wrapper_css}">{icon} {label}:')
     for entity in entities:
+        safe_name = html.escape(entity.get(name_key, ""))
+        safe_desc = html.escape(entity.get(desc_key, ""))
         parts.append(
-            f'<div class="{item_css}"><span class="{name_css}">{html.escape(entity.get(name_key, ""))}</span>{_SEP}{html.escape(entity.get(desc_key, ""))}</div>'
+            f'<div class="{item_css}"><span class="{name_css}">{safe_name}</span>{_SEP}{safe_desc}</div>'
         )
     parts.append("</div>")
+
+
+def _format_pct(pct: float) -> str:
+    """前日比パーセントを符号付き文字列（小数1桁）に整形する。
+
+    例: 正は "+1.8%"、負は "-0.5%"、ゼロ（及びゼロ近傍）は "±0.0%"。
+    表示桁（小数1桁）に丸めてから符号を決める。これにより -0.04%/+0.04% のような
+    ゼロ近傍が "-0.0%"/"+0.0%" にならず "±0.0%" に是正される。
+    """
+    rounded = round(pct, 1)
+    if rounded > 0:
+        return f"+{rounded:.1f}%"
+    if rounded < 0:
+        return f"{rounded:.1f}%"  # マイナス符号は f-string が付与する
+    return "±0.0%"
+
+
+def _safe_href(url: str) -> str:
+    """href に埋め込む安全な URL を返す。
+
+    https/http で始まる URL のみ html.escape(quote=True) して通し、
+    それ以外（javascript: 等の危険スキーム・空文字）は "#" に置き換える。
+    """
+    return html.escape(url, quote=True) if url.startswith(("https://", "http://")) else "#"
 
 
 def _format_price_line(stock: dict) -> str | None:
@@ -102,21 +132,19 @@ def _format_price_line(stock: dict) -> str | None:
 
     例: "現在値 2,750円（前日比 +1.8%）"。
     Yahoo chart API の regularMarketPrice（現在値）ベースのため「現在値」と書く。
-    符号: 正は "+1.8%"、負は "-0.5%"、ゼロは "±0.0%"。
+    なお場中なら regularMarketPrice は現在値だが、寄り付き前（朝刊 7:00 等）は
+    Yahoo の regularMarketPrice が実質直近の終値になり得る点に留意する。
+    符号整形は _format_pct に委譲する（正 "+1.8%"／負 "-0.5%"／ゼロ "±0.0%"）。
     """
     price = stock.get("price")
     if price is None:
         return None
+    if not isinstance(price, (int, float)):
+        return None
     pct = stock.get("change_pct", 0.0)
-    # 表示桁（小数1桁）に丸めてから符号を決める。これにより -0.04%/+0.04% のような
-    # ゼロ近傍が "-0.0%"/"+0.0%" にならず "±0.0%" に是正される。
-    rounded = round(pct, 1)
-    if rounded > 0:
-        pct_str = f"+{rounded:.1f}%"
-    elif rounded < 0:
-        pct_str = f"{rounded:.1f}%"  # マイナス符号は f-string が付与する
-    else:
-        pct_str = "±0.0%"
+    if not isinstance(pct, (int, float)):
+        pct = 0.0
+    pct_str = _format_pct(pct)
     return f"現在値 {price:,.0f}円（前日比 {pct_str}）"
 
 
@@ -135,8 +163,8 @@ def _build_text(edition: str, result: dict, date_str: str) -> str:
         cat = item.get("category", "")
         icon = CATEGORY_ICONS.get(cat, _ICON_DEFAULT_CAT)
         lines.append(f"━━ {icon} {cat} ━━")
-        lines.append(f"【{item['title']}】")
-        lines.append(item["summary"])
+        lines.append(f"【{item.get('title', '')}】")
+        lines.append(item.get("summary", ""))
         # 背景（記事ごと・内容がある場合のみ表示）
         background = item.get("background", "")
         if background:
@@ -145,9 +173,8 @@ def _build_text(edition: str, result: dict, date_str: str) -> str:
         # _ENTITY_SECTIONS の順（companies → people → keywords）で描画する
         for section in _ENTITY_SECTIONS:
             entities = item.get(section["field"], [])
-            if entities:
-                _append_entity_text(lines, section, entities)
-        lines.append(f"{_ICON_LINK} {item['url']}")
+            _append_entity_text(lines, section, entities)
+        lines.append(f"{_ICON_LINK} {item.get('url', '')}")
         lines.append(f"{_ICON_HEADER} {item.get('source', '')}")
         lines.append("")
 
@@ -164,13 +191,15 @@ def _build_text(edition: str, result: dict, date_str: str) -> str:
         lines.append(f"━━ {_ICON_STOCKS} 注目銘柄候補 ━━")
         lines.append("※投資判断はご自身の責任でお願いします")
         for stock in stock_picks:
-            lines.append(f"• {stock['ticker']} {stock['name']} {stock['direction']}")
-            lines.append(f"  {stock['reason']}")
+            lines.append(
+                f"• {stock.get('ticker', '')} {stock.get('name', '')} {stock.get('direction', '')}"
+            )
+            lines.append(f"  {stock.get('reason', '')}")
             # 現在値・前日比（取得できた銘柄のみ・reason と根拠の間に表示）
             price_line = _format_price_line(stock)
             if price_line:
                 lines.append(f"  {price_line}")
-            lines.append(f"  根拠: {stock['source_headline']}")
+            lines.append(f"  根拠: {stock.get('source_headline', '')}")
         lines.append("")
 
     return "\n".join(lines)
@@ -191,6 +220,9 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         "<!DOCTYPE html><html><head>",
         '<meta charset="utf-8">',
         '<style>',
+        # CSS は1セレクタ1要素で列挙する（可読性のため）。
+        # 出力 HTML の <style> 文字列は変わるが、セレクタ・プロパティの内容は
+        # 不変なのでメールのレンダリング結果は同一。
         # メール本文の基本スタイル（フォント・幅・余白・文字色・行間）
         "body{font-family:'Hiragino Sans','Meiryo',sans-serif;max-width:640px;margin:0 auto;padding:16px;color:#222;line-height:1.7}",
         "h1{font-size:1.2em;border-bottom:2px solid #333;padding-bottom:8px}",
@@ -200,11 +232,20 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         ".article-summary{margin:4px 0}",
         "a{color:#1a73e8;text-decoration:none}",
         ".article-background{margin:4px 0;color:#555}",
-        ".article-entities{margin:4px 0;font-size:0.9em}.article-entities .ent{margin:2px 0}.article-entities .ent-name{font-weight:bold}",
+        # 企業紹介・人物紹介（companies/people）の表示スタイル
+        ".article-entities{margin:4px 0;font-size:0.9em}",
+        ".article-entities .ent{margin:2px 0}",
+        ".article-entities .ent-name{font-weight:bold}",
         ".life{margin:16px 0;background:#e8f4e8;border-left:4px solid #60c060;padding:8px 12px}",
-        ".article-keywords{margin:4px 0;font-size:0.9em}.article-keywords .kw{margin:2px 0}.article-keywords .kw-word{font-weight:bold}",
+        # キーワード（keywords）の表示スタイル（companies/people とは別系統・意図的に維持）
+        ".article-keywords{margin:4px 0;font-size:0.9em}",
+        ".article-keywords .kw{margin:2px 0}",
+        ".article-keywords .kw-word{font-weight:bold}",
         ".stocks{background:#e8f0fe;border:1px solid #6090d0;padding:12px 16px;margin-top:16px;border-radius:6px}",
-        ".stock-item{margin:10px 0}.stock-meta{font-weight:bold}.stock-disclaimer{font-size:0.85em;color:#666;margin-bottom:8px}",
+        # 注目銘柄候補（stock_picks）の表示スタイル
+        ".stock-item{margin:10px 0}",
+        ".stock-meta{font-weight:bold}",
+        ".stock-disclaimer{font-size:0.85em;color:#666;margin-bottom:8px}",
         ".stock-price{font-size:0.95em;color:#1a4d8f;margin:2px 0}",
         ".article-source{font-size:0.8em;color:#888;margin-top:2px}",
         "</style></head><body>",
@@ -217,12 +258,11 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         icon = CATEGORY_ICONS.get(cat, _ICON_DEFAULT_CAT)
         # html.escape() でHTMLエスケープ（特殊文字をHTMLの表示文字に変換）
         safe_cat = html.escape(cat)
-        safe_title = html.escape(item["title"])
-        safe_summary = html.escape(item["summary"])
-        url = item["url"]
+        safe_title = html.escape(item.get("title", ""))
+        safe_summary = html.escape(item.get("summary", ""))
+        url = item.get("url", "")
         # URLに不正な値が入ってもリンクが安全になるよう、https/http 以外は # に置き換える
-        # quote=True にすると URL の中の & なども安全にエスケープされる
-        safe_url = html.escape(url, quote=True) if url.startswith(("https://", "http://")) else "#"
+        safe_url = _safe_href(url)
         parts.append(f"<h2>{icon} {safe_cat}</h2>")
         parts.append('<div class="article">')
         parts.append(f'<div class="article-title">{safe_title}</div>')
@@ -236,8 +276,7 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         # CSS クラスの差異（keywords だけ別系統）は section が吸収する。
         for section in _ENTITY_SECTIONS:
             entities = item.get(section["field"], [])
-            if entities:
-                _append_entity_html(parts, section, entities)
+            _append_entity_html(parts, section, entities)
         parts.append(f'<a href="{safe_url}">{_ICON_LINK} 記事を読む</a>')
         parts.append(f'<div class="article-source">{_ICON_HEADER} {html.escape(item.get("source", ""))}</div>')
         parts.append("</div>")
@@ -254,13 +293,13 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         parts.append('<div class="stock-disclaimer">※投資判断はご自身の責任でお願いします</div>')
         for stock in stock_picks:
             parts.append('<div class="stock-item">')
-            parts.append(f'<div class="stock-meta">{html.escape(stock["ticker"])} {html.escape(stock["name"])} {html.escape(stock["direction"])}</div>')
-            parts.append(f'<div>{html.escape(stock["reason"])}</div>')
+            parts.append(f'<div class="stock-meta">{html.escape(stock.get("ticker", ""))} {html.escape(stock.get("name", ""))} {html.escape(stock.get("direction", ""))}</div>')
+            parts.append(f'<div>{html.escape(stock.get("reason", ""))}</div>')
             # 現在値・前日比（取得できた銘柄のみ）。整形後の文字列も html.escape する
             price_line = _format_price_line(stock)
             if price_line:
                 parts.append(f'<div class="stock-price">{html.escape(price_line)}</div>')
-            parts.append(f'<div>根拠: {html.escape(stock["source_headline"])}</div>')
+            parts.append(f'<div>根拠: {html.escape(stock.get("source_headline", ""))}</div>')
             parts.append("</div>")
         parts.append("</div>")
 

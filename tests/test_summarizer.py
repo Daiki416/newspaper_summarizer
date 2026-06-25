@@ -3,7 +3,29 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from summarizer import _normalize_entity_fields  # noqa: E402
+from summarizer import _normalize_entity_fields, _sanitize  # noqa: E402
+
+
+# --- _sanitize（スマートクォート除去）---
+# テストソース内の全角クォートも linter に正規化され得るため、
+# 置換対象は chr(0x201C)/chr(0x201D) で明示的に構築する。
+_LDQUO = chr(0x201C)  # “ (U+201C)
+_RDQUO = chr(0x201D)  # ” (U+201D)
+
+
+def test_sanitize_converts_smart_double_quotes():
+    # U+201C / U+201D を ASCII の " に変換する（no-op 化していないことの回帰）
+    assert _sanitize(f"{_LDQUO}決算{_RDQUO}") == '"決算"'
+
+
+def test_sanitize_leaves_ascii_quotes_unchanged():
+    assert _sanitize('"already ascii"') == '"already ascii"'
+
+
+def test_sanitize_is_not_noop_for_smart_quotes():
+    # スマートクォートを含む入力では必ず変化が生じる（実装が実質 no-op に退化したら失敗する）
+    smart = f"{_LDQUO}test{_RDQUO}"
+    assert _sanitize(smart) != smart
 
 
 # --- keywords ---
