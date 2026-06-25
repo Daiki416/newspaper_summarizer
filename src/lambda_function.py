@@ -9,15 +9,23 @@ from datetime import datetime, timezone, timedelta
 # JST = 日本標準時（UTC+9）。朝刊/夕刊の自動判定に使う。
 JST = timezone(timedelta(hours=9))
 
-# SSM から環境変数へロードする対象キー（= そのまま os.environ のキー名になる）
-_SECRET_KEYS = [
+# SSM から環境変数へロードする必須キー（無いと送信不可なので、未登録は致命的エラー）
+_REQUIRED_SECRET_KEYS = [
     "ANTHROPIC_API_KEY",
     "GMAIL_ADDRESS",
     "GMAIL_APP_PASSWORD",
     "NOTIFY_EMAIL",
-    # J-Quants 銘柄マスタ用の恒久 API キー（社名→証券コードの権威解決に使う）
+]
+
+# 任意キー（無くても配信は継続する＝ベストエフォート）。未登録でも落とさない。
+# J-Quants 銘柄マスタ用の恒久 API キー（社名→証券コードの権威解決に使う）。
+# 未登録なら get_name_index() が None を返し、注目銘柄は全件除外して配信を続ける。
+_OPTIONAL_SECRET_KEYS = [
     "JQUANTS_API_KEY",
 ]
+
+# SSM から環境変数へロードする対象キー（= そのまま os.environ のキー名になる）
+_SECRET_KEYS = _REQUIRED_SECRET_KEYS + _OPTIONAL_SECRET_KEYS
 
 
 def _load_secrets_from_ssm() -> None:
@@ -25,7 +33,8 @@ def _load_secrets_from_ssm() -> None:
 
     パラメータ名は PARAM_PREFIX + キー名（例: /newspaper/ANTHROPIC_API_KEY）。
     値（秘密情報）は print / log / 例外メッセージに一切含めない。
-    未登録パラメータがあった場合はパラメータ名のみを含むエラーを送出する。
+    必須キー（_REQUIRED_SECRET_KEYS）が未登録の場合のみ、パラメータ名だけを含む
+    エラーを送出する。任意キー（_OPTIONAL_SECRET_KEYS）の未登録は許容し配信を止めない。
     """
     prefix = os.environ.get("PARAM_PREFIX", "/newspaper/")
     # パラメータ名 → 環境変数名 の対応表を作る
@@ -42,10 +51,12 @@ def _load_secrets_from_ssm() -> None:
         env_name = name_to_env[param["Name"]]
         os.environ[env_name] = param["Value"]
 
-    # 未登録（無効）なパラメータがあれば、名前だけを示してエラーにする（値は出さない）
-    invalid = response["InvalidParameters"]
-    if invalid:
-        raise RuntimeError(f"SSM パラメータが見つかりません: {invalid}")
+    # 未登録（無効）パラメータのうち「必須キー」が欠けている場合のみ致命的にする。
+    # 任意キー（JQUANTS_API_KEY 等）の未登録は無視して配信を続ける（値は出さない）。
+    required_names = {prefix + key for key in _REQUIRED_SECRET_KEYS}
+    missing_required = [name for name in response["InvalidParameters"] if name in required_names]
+    if missing_required:
+        raise RuntimeError(f"SSM パラメータが見つかりません: {missing_required}")
 
 
 # モジュールロード時に SSM から秘密情報をロードする。
