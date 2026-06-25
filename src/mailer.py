@@ -191,8 +191,9 @@ def _build_text(edition: str, result: dict, date_str: str) -> str:
         lines.append(f"━━ {_ICON_STOCKS} 注目銘柄候補 ━━")
         lines.append("※投資判断はご自身の責任でお願いします")
         for stock in stock_picks:
+            # 証券コード（ticker）は J-Quants 解決へ移行したため表示しない（社名＋方向のみ）
             lines.append(
-                f"• {stock.get('ticker', '')} {stock.get('name', '')} {stock.get('direction', '')}"
+                f"• {stock.get('name', '')} {stock.get('direction', '')}"
             )
             lines.append(f"  {stock.get('reason', '')}")
             # 現在値・前日比（取得できた銘柄のみ・reason と根拠の間に表示）
@@ -293,7 +294,8 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         parts.append('<div class="stock-disclaimer">※投資判断はご自身の責任でお願いします</div>')
         for stock in stock_picks:
             parts.append('<div class="stock-item">')
-            parts.append(f'<div class="stock-meta">{html.escape(stock.get("ticker", ""))} {html.escape(stock.get("name", ""))} {html.escape(stock.get("direction", ""))}</div>')
+            # 証券コード（ticker）は J-Quants 解決へ移行したため表示しない（社名＋方向のみ）
+            parts.append(f'<div class="stock-meta">{html.escape(stock.get("name", ""))} {html.escape(stock.get("direction", ""))}</div>')
             parts.append(f'<div>{html.escape(stock.get("reason", ""))}</div>')
             # 現在値・前日比（取得できた銘柄のみ）。整形後の文字列も html.escape する
             price_line = _format_price_line(stock)

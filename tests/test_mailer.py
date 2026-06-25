@@ -173,8 +173,8 @@ def test_build_html_escapes_script_in_new_fields():
 
 
 def _pick(**overrides):
+    # ticker は J-Quants 解決へ移行し mailer 表示からは削除した（社名＋方向のみ）。
     base = {
-        "ticker": "7203",
         "name": "トヨタ",
         "direction": "↑",
         "reason": "好決算のため",
@@ -182,6 +182,24 @@ def _pick(**overrides):
     }
     base.update(overrides)
     return base
+
+
+def test_build_text_stock_meta_has_no_ticker():
+    # stock-meta 行は社名＋方向のみ。証券コード（ticker）は表示しない。
+    pick = _pick(ticker="7203")
+    result = {"summaries": [], "stock_picks": [pick]}
+    text = _build_text("朝刊", result, "2026年6月23日")
+    assert "トヨタ" in text
+    assert "↑" in text
+    assert "7203" not in text
+
+
+def test_build_html_stock_meta_has_no_ticker():
+    pick = _pick(ticker="7203")
+    result = {"summaries": [], "stock_picks": [pick]}
+    html_out = _build_html("朝刊", result, "2026年6月23日")
+    assert "トヨタ" in html_out
+    assert "7203" not in html_out
 
 
 def test_build_text_stock_price_up():
@@ -288,11 +306,11 @@ def test_build_html_stock_missing_keys_no_keyerror():
 
 
 def test_build_text_stock_item_order_fixed():
-    # text 版: ticker/name/direction → reason → price_line → 根拠 の順で出現する
+    # text 版: name/direction → reason → price_line → 根拠 の順で出現する
     pick = _pick(price=2750.0, change_pct=1.8)
     result = {"summaries": [], "stock_picks": [pick]}
     text = _build_text("朝刊", result, "2026年6月23日")
-    i_meta = text.index("7203")
+    i_meta = text.index("トヨタ")
     i_reason = text.index("好決算のため")
     i_price = text.index("現在値 2,750円（前日比 +1.8%）")
     i_basis = text.index("根拠: トヨタ過去最高益")

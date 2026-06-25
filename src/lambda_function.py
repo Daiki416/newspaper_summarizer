@@ -15,6 +15,8 @@ _SECRET_KEYS = [
     "GMAIL_ADDRESS",
     "GMAIL_APP_PASSWORD",
     "NOTIFY_EMAIL",
+    # J-Quants 銘柄マスタ用の恒久 API キー（社名→証券コードの権威解決に使う）
+    "JQUANTS_API_KEY",
 ]
 
 

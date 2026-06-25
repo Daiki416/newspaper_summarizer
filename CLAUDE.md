@@ -12,6 +12,8 @@ src/
   main.py       エントリーポイント。引数解析 → RSS取得 → AI要約 → メール送信の制御
   fetcher.py    RSSフィードから記事を取得・フィルタリング
   summarizer.py Claude API (Tool Use) でカテゴリ別ニュースを要約
+  jquants.py    J-Quants 銘柄マスタで「社名→証券コード(Yahooシンボル)」を権威解決
+  quotes.py     Yahoo Finance で注目銘柄の現在値・前日比を取得しマージ（コードは jquants 由来）
   mailer.py     テキスト＋HTML のMIMEメール組み立て・Gmail SMTP送信
 config/
   sources.yaml  カテゴリ別のRSSフィードURL一覧
@@ -42,6 +44,7 @@ ANTHROPIC_API_KEY=   # Anthropic Console で取得
 GMAIL_ADDRESS=       # 送信元 Gmail アドレス
 GMAIL_APP_PASSWORD=  # Google アカウントのアプリパスワード（16桁）
 NOTIFY_EMAIL=        # 送信先（カンマ区切りで複数可）
+JQUANTS_API_KEY=     # J-Quants の恒久 API キー（社名→証券コードの権威解決に使う・未設定なら注目銘柄は非表示）
 ```
 
 ## ローカル実行
@@ -75,6 +78,8 @@ python src/main.py --use-cache
 - **複数送信先**: `NOTIFY_EMAIL` をカンマ区切りで複数指定可能
 - **生活への影響は全体で1個**: 記事ごとではなく、今日のニュース全体を踏まえた `life_impact` をトップレベルに1個だけ生成する
 - **keywords / companies / people は任意（品質ゲート）**: 該当する場合のみ生成し、無ければ空配列。keywords は 0〜3個に絞る
+- **注目銘柄の証券コードは J-Quants で権威解決**: Claude(LLM) は証券コードを記憶から想起し誤コード（実在しないコード→Yahoo 404→価格欠落）を出すため、コード暗記に頼らない。`jquants.py` が J-Quants 銘柄マスタ（`/v2/equities/master`、`x-api-key` ヘッダー認証）から「社名→コード」を引き、価格は引き続き Yahoo Finance で取得する。社名照合は NFKC 正規化＋接尾辞除去した**完全一致のみ**（部分一致・あいまい一致は不採用）。証券コードは5桁・先頭4桁が全数字のときだけ `9418.T` 形式に採用（英数字新形式は安全側で除外）。銘柄マスタはプロセス内キャッシュする。
+- **解決不可・キー未設定/障害時は注目銘柄を非表示**: 社名を解決できなかった pick は配信から除外する。`JQUANTS_API_KEY` 未設定や J-Quants 取得失敗時は、誤コード混入を防ぐため注目銘柄を全件除外する（配信自体は止めない）。`stock_picks` スキーマの `ticker` は required から外し、mailer の表示からも削除した（社名＋方向のみ）。
 
 ## ニュースカテゴリ
 
@@ -99,11 +104,13 @@ python src/main.py --use-cache
     "url", "source"
   }],
   "life_impact": str,                          # 全体の生活への影響（全体で1個・2〜3文）
-  "stock_picks": [{"ticker", "name", "direction", "reason", "source_headline"}]  # 注目銘柄
+  "stock_picks": [{"name", "direction", "reason", "source_headline"}]  # 注目銘柄（ticker は出さなくてよい＝J-Quants で解決）
 }
 # required: トップレベルは summaries / life_impact / stock_picks
 #           summaries item は category / title / summary / url / source / background
 #           （companies / people / keywords は任意＝空配列可、記事ごとの life_impact は廃止）
+#           stock_picks item は name / direction / reason / source_headline
+#           （ticker は required から外した。プロパティは残るが無視され、証券コードは J-Quants で社名から解決する）
 ```
 
 ## テスト

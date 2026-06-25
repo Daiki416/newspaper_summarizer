@@ -204,113 +204,159 @@ def test_compute_change_prev_negative_guard():
 
 
 # --- enrich_stock_prices ---
+#
+# 再設計: 証券コードは J-Quants の銘柄マスタ（name_index）で社名から権威解決する。
+# stock_picks の "ticker" は使わず、"name" を name_index で解決する。
+# - name_index が None（キー未設定/障害）→ 全件除外して空リストを返す（安全側）
+# - 解決できない pick は出力に含めない（新リストを返すため除外が反映される）
+# テストでは name_index を引数注入し、実 HTTP（J-Quants/Yahoo）を呼ばない。
 
 
 def _quote(price, change, pct, as_of="2026-06-18"):
     return {"price": price, "change": change, "change_pct": pct, "as_of": as_of}
 
 
-def test_enrich_all_success_merges_keys():
-    picks = [{"ticker": "6472", "name": "NTN"}]
+# テスト用の社名→Yahoo シンボル index（build_name_index 相当のキーを直接用意する）。
+# 正規化キーは jquants.normalize_company_name に準拠する必要があるため、そちらで作る。
+def _index(*pairs):
+    import jquants
+
+    return {jquants.normalize_company_name(name): symbol for name, symbol in pairs}
+
+
+def test_enrich_resolves_name_and_merges_keys():
+    picks = [{"name": "NTN"}]
+    index = _index(("NTN", "6472.T"))
 
     def fake_fetcher(symbol, *, timeout=10.0):
         assert symbol == "6472.T"
         return _quote(432.0, -7.2, -1.6)
 
-    out = enrich_stock_prices(picks, fetcher=fake_fetcher)
+    out = enrich_stock_prices(picks, fetcher=fake_fetcher, name_index=index)
     assert out[0]["price"] == 432.0
-    assert out[0]["change"] == -7.2
     assert out[0]["change_pct"] == -1.6
     assert out[0]["as_of"] == "2026-06-18"
     assert out[0]["yahoo_symbol"] == "6472.T"
-    # 元のキーは保持
     assert out[0]["name"] == "NTN"
 
 
-def test_enrich_fetcher_none_no_price_keys():
-    picks = [{"ticker": "6472", "name": "NTN"}]
+def test_enrich_unresolvable_pick_is_excluded():
+    # index に無い社名の pick は出力から除外される
+    picks = [{"name": "知らない会社"}, {"name": "NTN"}]
+    index = _index(("NTN", "6472.T"))
+
+    def fake_fetcher(symbol, *, timeout=10.0):
+        return _quote(432.0, -7.2, -1.6)
+
+    out = enrich_stock_prices(picks, fetcher=fake_fetcher, name_index=index)
+    assert len(out) == 1
+    assert out[0]["name"] == "NTN"
+    assert out[0]["price"] == 432.0
+
+
+def test_enrich_name_index_none_excludes_all():
+    # name_index が None（キー未設定/障害）なら全件除外して空リストを返す
+    picks = [{"name": "NTN"}, {"name": "トヨタ"}]
+
+    def fake_fetcher(symbol, *, timeout=10.0):
+        raise AssertionError("name_index=None で fetcher を呼んではいけない")
+
+    out = enrich_stock_prices(picks, fetcher=fake_fetcher, name_index=None)
+    assert out == []
+
+
+def test_enrich_price_fetch_fail_keeps_resolved_pick():
+    # 価格取得だけ失敗しても、解決済み pick は素通しで残る（price 無し）
+    picks = [{"name": "NTN"}]
+    index = _index(("NTN", "6472.T"))
 
     def fake_fetcher(symbol, *, timeout=10.0):
         return None
 
-    out = enrich_stock_prices(picks, fetcher=fake_fetcher)
+    out = enrich_stock_prices(picks, fetcher=fake_fetcher, name_index=index)
+    assert len(out) == 1
+    assert out[0]["name"] == "NTN"
     assert "price" not in out[0]
     assert "yahoo_symbol" not in out[0]
 
 
-def test_enrich_fetcher_raises_returns_original():
-    picks = [{"ticker": "6472", "name": "NTN"}]
+def test_enrich_price_fetch_raises_keeps_resolved_pick():
+    picks = [{"name": "NTN"}]
+    index = _index(("NTN", "6472.T"))
 
     def fake_fetcher(symbol, *, timeout=10.0):
         raise RuntimeError("boom")
 
-    out = enrich_stock_prices(picks, fetcher=fake_fetcher)
+    out = enrich_stock_prices(picks, fetcher=fake_fetcher, name_index=index)
+    assert len(out) == 1
     assert out[0]["name"] == "NTN"
-    assert "price" not in out[0]
-
-
-def test_enrich_us_ticker_skipped():
-    picks = [{"ticker": "AAPL", "name": "Apple"}]
-    called = []
-
-    def fake_fetcher(symbol, *, timeout=10.0):
-        called.append(symbol)
-        return _quote(100.0, 1.0, 1.0)
-
-    out = enrich_stock_prices(picks, fetcher=fake_fetcher)
-    assert called == []  # symbol が取れないので fetcher を呼ばない
     assert "price" not in out[0]
 
 
 def test_enrich_multiple_picks_correspondence_preserved():
     # 並列化しても pick と quote の対応がズレないことを検証する。
-    # 各シンボルに固有の price を返し、マージ先が一致するか確認する。
     picks = [
-        {"ticker": "6472", "name": "NTN"},
-        {"ticker": "7203", "name": "トヨタ"},
-        {"ticker": "9984", "name": "SBG"},
+        {"name": "NTN"},
+        {"name": "トヨタ"},
+        {"name": "SBG"},
     ]
+    index = _index(("NTN", "6472.T"), ("トヨタ", "7203.T"), ("SBG", "9984.T"))
     price_by_symbol = {"6472.T": 100.0, "7203.T": 200.0, "9984.T": 300.0}
 
     def fake_fetcher(symbol, *, timeout=10.0):
         return _quote(price_by_symbol[symbol], 0.0, 0.0)
 
-    out = enrich_stock_prices(picks, fetcher=fake_fetcher)
-    # 入力リストをそのまま返す（同一オブジェクト）
-    assert out is picks
+    out = enrich_stock_prices(picks, fetcher=fake_fetcher, name_index=index)
     assert out[0]["price"] == 100.0 and out[0]["yahoo_symbol"] == "6472.T"
     assert out[1]["price"] == 200.0 and out[1]["yahoo_symbol"] == "7203.T"
     assert out[2]["price"] == 300.0 and out[2]["yahoo_symbol"] == "9984.T"
     assert out[0]["name"] == "NTN"
 
 
-def test_enrich_mixed_skip_and_success_correspondence():
-    # スキップ対象（US ティッカー）が間に挟まっても他の pick がズレない
+def test_enrich_mixed_unresolved_and_success_correspondence():
+    # 解決不可 pick が間に挟まっても、解決済み pick の対応がズレない
     picks = [
-        {"ticker": "6472", "name": "NTN"},
-        {"ticker": "AAPL", "name": "Apple"},
-        {"ticker": "7203", "name": "トヨタ"},
+        {"name": "NTN"},
+        {"name": "知らない会社"},
+        {"name": "トヨタ"},
     ]
+    index = _index(("NTN", "6472.T"), ("トヨタ", "7203.T"))
     price_by_symbol = {"6472.T": 100.0, "7203.T": 200.0}
 
     def fake_fetcher(symbol, *, timeout=10.0):
         return _quote(price_by_symbol[symbol], 0.0, 0.0)
 
-    out = enrich_stock_prices(picks, fetcher=fake_fetcher)
-    assert out[0]["price"] == 100.0
-    assert "price" not in out[1]  # AAPL はスキップ
-    assert out[2]["price"] == 200.0
+    out = enrich_stock_prices(picks, fetcher=fake_fetcher, name_index=index)
+    assert len(out) == 2
+    assert out[0]["name"] == "NTN" and out[0]["price"] == 100.0
+    assert out[1]["name"] == "トヨタ" and out[1]["price"] == 200.0
 
 
 def test_enrich_empty_list():
-    assert enrich_stock_prices([]) == []
+    assert enrich_stock_prices([], name_index={}) == []
 
 
-def test_enrich_returns_input_on_unexpected_error():
-    # stock_picks が dict でない要素を含んでも全体は壊れず元を返す
+def test_enrich_returns_empty_on_unexpected_error():
+    # stock_picks が dict でない要素を含んでも全体は壊れず（配信を止めない）
     picks = ["not a dict"]
-    out = enrich_stock_prices(picks, fetcher=lambda s, *, timeout=10.0: None)
-    assert out == picks
+    out = enrich_stock_prices(
+        picks, fetcher=lambda s, *, timeout=10.0: None, name_index={}
+    )
+    # 非 dict は解決できず除外され、空リストになる
+    assert out == []
+
+
+def test_enrich_uses_get_name_index_when_not_injected(monkeypatch):
+    # name_index 未指定なら get_name_index() を呼ぶ（テストでは差し替える）
+    index = _index(("NTN", "6472.T"))
+    monkeypatch.setattr(quotes, "get_name_index", lambda: index)
+
+    def fake_fetcher(symbol, *, timeout=10.0):
+        return _quote(432.0, -7.2, -1.6)
+
+    out = enrich_stock_prices([{"name": "NTN"}], fetcher=fake_fetcher)
+    assert len(out) == 1
+    assert out[0]["yahoo_symbol"] == "6472.T"
 
 
 # --- fetch_quote（urlopen をパッチ・実 HTTP 不使用） ---

@@ -54,6 +54,7 @@ companies（企業紹介）・people（人物紹介）・keywords（キーワー
 - 提供ニュースに明確な根拠がある場合のみ国内個別株を1〜3件ピックアップする
 - 根拠となるニュースが存在しない場合は空リストにする
 - 方向感は「↑上昇期待」「↓下落懸念」「→様子見」のいずれかを使用する
+- name には正確な現在の正式社名を出すこと。証券コードは出さなくてよい（こちらで権威的に解決する）
 - これは投資助言ではなく情報提供であることを念頭に置く
 
 - Source フィールドに記載された出典名は変更せずそのまま source フィールドに出力すること"""
@@ -134,13 +135,15 @@ _TOOL = {
                 "items": {
                     "type": "object",
                     "properties": {
+                        # ticker プロパティ自体は残すが required からは外す（無視される）。
+                        # 証券コードは J-Quants 銘柄マスタで社名から権威解決する。
                         "ticker": {"type": "string"},
                         "name": {"type": "string"},
                         "direction": {"type": "string", "enum": ["↑上昇期待", "↓下落懸念", "→様子見"]},
                         "reason": {"type": "string"},
                         "source_headline": {"type": "string"},
                     },
-                    "required": ["ticker", "name", "direction", "reason", "source_headline"],
+                    "required": ["name", "direction", "reason", "source_headline"],
                 },
             },
         },

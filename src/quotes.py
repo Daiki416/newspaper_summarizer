@@ -19,6 +19,10 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from typing import Callable
 
+# 社名 → 証券コード（Yahoo シンボル）の権威解決。
+# Claude(LLM) の暗記したコードに頼らず J-Quants 銘柄マスタで解決する。
+from jquants import get_name_index, resolve_company
+
 # Yahoo Finance chart API（日足。meta（現在値・前日終値）だけ使うので range=1d で十分）。
 # 不変条件: ホストは query1.finance.yahoo.com 固定（query2 等へは切り替えない）。
 _YAHOO_URL = (
@@ -152,28 +156,45 @@ def enrich_stock_prices(
     stock_picks: list[dict],
     fetcher: Callable[..., dict | None] = fetch_quote,
     timeout: float = 10.0,
+    name_index: dict | None = None,
 ) -> list[dict]:
-    """各 stock_pick に現在値・前日比をベストエフォートでマージして返す。
+    """各 stock_pick の社名を J-Quants で証券コード解決し、現在値・前日比をマージした新リストを返す。
 
-    fetcher はテスト差し替え点（既定は fetch_quote。テストでは実 HTTP を避けるため
-    fetcher(symbol, timeout=...) を満たすスタブを渡す）。
+    証券コードは Claude(LLM) の暗記ではなく J-Quants 銘柄マスタ（name_index）で
+    社名から権威解決する（誤コード→価格欠落を防ぐ）。除外があるため**新リスト**を返す。
 
-    - to_yahoo_symbol(pick["ticker"]) が None ならスキップ（価格キーを付けない）
-    - symbol が取れたら fetcher(symbol, timeout=timeout) を呼び結果を pick にマージ
-    - fetcher が None / 例外 のときはその pick に価格キーを付けない（元のまま）
-    - 全体を try/except で囲み、何があっても stock_picks をそのまま返す
+    引数:
+        fetcher: Yahoo 価格取得のテスト差し替え点（既定は fetch_quote）。
+        name_index: 社名→Yahoo シンボル辞書。テスト注入点。
+                    None（未指定）のときは get_name_index() を呼ぶ。
+
+    挙動:
+        - name_index が None（キー未設定/障害）→ 誤コード混入を防ぐため
+          stock_picks を全件除外し空リスト [] を返す（配信は止めない）。
+        - 各 pick: resolve_company(pick["name"], name_index) で Yahoo シンボルを解決。
+          解決できた pick のみ出力に含める（解決不可 pick は除外）。
+        - 解決済み pick に Yahoo 価格を並列マージ。価格取得だけ失敗した pick は
+          価格キーを付けず素通しで残す（mailer 側で価格行が省略される）。
+        - 全体 try/except で配信を止めない。秘密情報は出さない。
 
     I/O バウンドのため ThreadPoolExecutor(max_workers=_MAX_WORKERS) で fetcher 呼び出しを並列化する。
-    future を (pick, symbol) に対応づけてからマージするため、並列でも pick と quote の
-    対応はズレない（マージ自体は呼び出しスレッドで in-place に行う）。
+    future を (pick, symbol) に対応づけてからマージするため、並列でも対応はズレない。
     """
+    # name_index 未指定なら J-Quants から取得（プロセス内キャッシュ）。
+    if name_index is None:
+        name_index = get_name_index()
+
+    # キー未設定/障害（None）なら誤コード混入を防ぐため全件除外する（安全側）。
+    if name_index is None:
+        return []
+
     try:
-        # symbol が取れる pick だけを (pick, symbol) として収集する。
-        # 順序は入力順を保つ（in-place 更新なので結果順序は元リストのまま）。
+        # 社名を解決できた pick だけを (pick, symbol) として収集する（入力順を保つ）。
         targets: list[tuple[dict, str]] = []
         for pick in stock_picks:
             try:
-                symbol = to_yahoo_symbol(pick.get("ticker", ""))
+                name = pick.get("name", "") if isinstance(pick, dict) else ""
+                symbol = resolve_company(name, name_index)
             except Exception as e:
                 print(f"株価マージ失敗: {type(e).__name__}")
                 continue
@@ -182,7 +203,7 @@ def enrich_stock_prices(
             targets.append((pick, symbol))
 
         if not targets:
-            return stock_picks
+            return []
 
         # fetcher 呼び出し（HTTP）のみ並列化する。各 future は (pick, symbol) に紐づく。
         with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
@@ -196,14 +217,18 @@ def enrich_stock_prices(
                 try:
                     quote = future.result()
                     if quote is None:
+                        # 価格取得だけ失敗。解決済み pick は素通しで残す（価格キー無し）。
                         continue
                     pick.update(quote)
                     pick["yahoo_symbol"] = symbol
                 except Exception as e:
-                    # 個別 pick の失敗は他に波及させない
+                    # 個別 pick の価格失敗は他に波及させない（pick 自体は残す）
                     print(f"株価マージ失敗: {type(e).__name__}")
                     continue
+
+        # 解決できた pick のみを入力順で返す。
+        return [pick for pick, _symbol in targets]
     except Exception as e:
-        # 何があっても配信を壊さない
+        # 何があっても配信を壊さない。誤コード混入を避けるため空リストを返す。
         print(f"株価マージ全体失敗: {type(e).__name__}")
-    return stock_picks
+        return []
