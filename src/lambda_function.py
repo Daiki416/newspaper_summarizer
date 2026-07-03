@@ -20,8 +20,10 @@ _REQUIRED_SECRET_KEYS = [
 # 任意キー（無くても配信は継続する＝ベストエフォート）。未登録でも落とさない。
 # J-Quants 銘柄マスタ用の恒久 API キー（社名→証券コードの権威解決に使う）。
 # 未登録なら get_name_index() が None を返し、注目銘柄は全件除外して配信を続ける。
+# GEMINI_API_KEY は LLM_PROVIDER=gemini 時のみ使用。claude 運用中は未登録でも可。
 _OPTIONAL_SECRET_KEYS = [
     "JQUANTS_API_KEY",
+    "GEMINI_API_KEY",
 ]
 
 # SSM から環境変数へロードする対象キー（= そのまま os.environ のキー名になる）
@@ -116,7 +118,8 @@ def handler(event, context):
     total = sum(len(v) for v in articles.values())
     print(f"  取得: {total}件（{len(articles)}カテゴリ）")
 
-    print("Claude APIで要約中...")
+    from summarizer import LLM_PROVIDER
+    print(f"{LLM_PROVIDER.capitalize()} APIで要約中...")
     result = summarize(articles)
 
     # 注目銘柄に Yahoo の現在値・前日比をベストエフォートでマージする（send の前）。

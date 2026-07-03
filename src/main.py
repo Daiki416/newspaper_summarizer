@@ -105,7 +105,8 @@ def main() -> None:
             total = sum(len(v) for v in articles.values())
             print(f"  取得: {total}件（{len(articles)}カテゴリ）")
 
-            print("Claude APIで要約中...")
+            from summarizer import LLM_PROVIDER
+            print(f"{LLM_PROVIDER.capitalize()} APIで要約中...")
             result = summarize(articles)
             # 次回 --use-cache で再利用できるよう、要約結果をJSONファイルに保存する
             # ensure_ascii=False で日本語をそのまま保存、indent=2 で読みやすく整形する
