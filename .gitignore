@@ -14,5 +14,7 @@ docs/aws-migration.md
 docs/review-notes.md
 # AWSデプロイ素材（アカウントID入り・コードからは読まれない使い捨て）
 aws/
+# デプロイスクリプト（AWSアカウントID入り）
+deploy.sh
 # macOSのゴミ
 .DS_Store
