@@ -17,7 +17,7 @@ JST = timezone(timedelta(hours=9))
 MAX_ARTICLES_PER_FEED = 2
 # 1カテゴリあたりの最大取得記事数（多すぎるとAIへの入力が長くなるため制限する）
 # 1記事が要約＋背景＋生活影響＋キーワードの4ブロック構成になったため、読みやすさ優先で3件に絞る
-MAX_ARTICLES_PER_CATEGORY = 3
+MAX_ARTICLES_PER_CATEGORY = 2
 
 
 def _load_sources() -> dict:
@@ -50,7 +50,7 @@ def _parse_published(entry) -> datetime | None:
     return None
 
 
-def _fetch_category(feeds: list[dict], cutoff: datetime) -> list[dict]:
+def _fetch_category(feeds: list[dict], cutoff: datetime, max_articles: int = MAX_ARTICLES_PER_CATEGORY) -> list[dict]:
     """1カテゴリ分のフィードをすべて取得し、新しい記事だけを返す。
 
     Args:
@@ -96,7 +96,7 @@ def _fetch_category(feeds: list[dict], cutoff: datetime) -> list[dict]:
     for a in articles:
         del a["_pub_dt"]
     # 上位 MAX_ARTICLES_PER_CATEGORY 件だけ返す
-    return articles[:MAX_ARTICLES_PER_CATEGORY]
+    return articles[:max_articles]
 
 
 def fetch_all(hours: int = 12) -> dict[str, list[dict]]:
@@ -113,8 +113,14 @@ def fetch_all(hours: int = 12) -> dict[str, list[dict]]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     sources = _load_sources()
     result = {}
-    for category, feeds in sources.items():
-        articles = _fetch_category(feeds, cutoff)
+    for category, conf in sources.items():
+        if isinstance(conf, dict) and "feeds" in conf:
+            feeds = conf["feeds"]
+            max_articles = conf.get("max_articles", MAX_ARTICLES_PER_CATEGORY)
+        else:
+            feeds = conf
+            max_articles = MAX_ARTICLES_PER_CATEGORY
+        articles = _fetch_category(feeds, cutoff, max_articles)
         # 記事が1件もなかったカテゴリは結果に含めない
         if articles:
             result[category] = articles

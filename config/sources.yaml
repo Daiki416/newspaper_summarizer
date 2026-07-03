@@ -1,29 +1,37 @@
 国内政治・経済:
-  - url: https://www3.nhk.or.jp/rss/news/cat4.xml
-    name: NHK 政治
-  - url: https://assets.wor.jp/rss/rdf/nikkei/economy.rdf
-    name: 日経 経済
+  max_articles: 2
+  feeds:
+    - url: https://www3.nhk.or.jp/rss/news/cat4.xml
+      name: NHK 政治
+    - url: https://assets.wor.jp/rss/rdf/nikkei/economy.rdf
+      name: 日経 経済
 
 国内ビジネス:
-  - url: https://www3.nhk.or.jp/rss/news/cat2.xml
-    name: NHK ビジネス
-  - url: https://assets.wor.jp/rss/rdf/nikkei/business.rdf
-    name: 日経 ビジネス
+  max_articles: 2
+  feeds:
+    - url: https://www3.nhk.or.jp/rss/news/cat2.xml
+      name: NHK ビジネス
+    - url: https://assets.wor.jp/rss/rdf/nikkei/business.rdf
+      name: 日経 ビジネス
 
 国内投資・マーケット:
-  - url: https://assets.wor.jp/rss/rdf/nikkei/markets.rdf
-    name: 日経 マーケット
+  max_articles: 2
+  feeds:
+    - url: https://assets.wor.jp/rss/rdf/nikkei/markets.rdf
+      name: 日経 マーケット
 
 国内テクノロジー・科学:
-  - url: https://assets.wor.jp/rss/rdf/nikkei/technology.rdf
-    name: 日経 テクノロジー
-  - url: https://rss.itmedia.co.jp/rss/2.0/itmedia_all.xml
-    name: ITmedia
-  - url: https://xtech.nikkei.com/rss/index.rdf
-    name: 日経XTECH
-  - url: https://www.publickey1.jp/atom.xml
-    name: Publickey
+  max_articles: 2
+  feeds:
+    - url: https://assets.wor.jp/rss/rdf/nikkei/technology.rdf
+      name: 日経 テクノロジー
+    - url: https://rss.itmedia.co.jp/rss/2.0/itmedia_all.xml
+      name: ITmedia
+    - url: https://xtech.nikkei.com/rss/index.rdf
+      name: 日経XTECH
 
 国際:
-  - url: https://www3.nhk.or.jp/rss/news/cat6.xml
-    name: NHK 国際
+  max_articles: 1
+  feeds:
+    - url: https://www3.nhk.or.jp/rss/news/cat6.xml
+      name: NHK 国際
