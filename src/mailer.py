@@ -32,6 +32,7 @@ _ICON_LIFE = "🏠"         # 生活への影響
 _ICON_STOCKS = "📊"       # 注目銘柄候補
 _ICON_LINK = "🔗"         # 記事リンク
 _ICON_DEFAULT_CAT = "📄"  # 未知カテゴリのデフォルトアイコン
+_ICON_HIGHLIGHT = "⭐"    # 今日のハイライト
 
 # 企業紹介 / 人物紹介 / キーワードの3セクションの「表示メタ定義」。
 # 各 css 差異の経緯は _append_entity_html の docstring 参照。
@@ -158,8 +159,34 @@ def _build_text(edition: str, result: dict, date_str: str) -> str:
     # 長い文字列の連結より効率的でコードも読みやすい
     lines = [f"{_ICON_HEADER} [{edition}] {date_str} 主要ニュース", ""]
 
-    # 記事要約セクション
-    for item in result.get("summaries", []):
+    # ハイライトセクション
+    highlights = result.get("highlights", [])
+    summaries = result.get("summaries", [])
+    highlight_indices = {h["index"] for h in highlights}
+    if highlights:
+        lines.append(f"\n{'━' * 20} {_ICON_HIGHLIGHT} 今日のハイライト {'━' * 20}\n")
+        for h in highlights:
+            s = summaries[h["index"]]
+            cat = s.get("category", "")
+            icon = CATEGORY_ICONS.get(cat, _ICON_DEFAULT_CAT)
+            lines.append(f"━━ {icon} {cat} ━━")
+            lines.append(f"【{s.get('title', '')}】")
+            lines.append(f"▶ {h['reason']}")
+            lines.append(s.get("summary", ""))
+            background = s.get("background", "")
+            if background:
+                lines.append(f"{_ICON_BACKGROUND} 背景: {background}")
+            for section in _ENTITY_SECTIONS:
+                _append_entity_text(lines, section, s.get(section["field"], []))
+            lines.append(f"{_ICON_LINK} {s.get('url', '')}")
+            lines.append(f"{_ICON_HEADER} {s.get('source', '')}")
+            lines.append("")
+        lines.append("")
+
+    # 記事要約セクション（ハイライト済みはスキップ）
+    for idx, item in enumerate(result.get("summaries", [])):
+        if idx in highlight_indices:
+            continue
         cat = item.get("category", "")
         icon = CATEGORY_ICONS.get(cat, _ICON_DEFAULT_CAT)
         lines.append(f"━━ {icon} {cat} ━━")
@@ -249,12 +276,47 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         ".stock-disclaimer{font-size:0.85em;color:#666;margin-bottom:8px}",
         ".stock-price{font-size:0.95em;color:#1a4d8f;margin:2px 0}",
         ".article-source{font-size:0.8em;color:#888;margin-top:2px}",
+        ".highlight-box{background:#fffbe6;border:2px solid #f0a000;border-radius:8px;padding:16px 20px;margin-bottom:24px}",
+        ".highlight-item{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #e0c060}",
+        ".highlight-item:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}",
+        ".highlight-title{font-weight:bold;font-size:1.05em}",
+        ".highlight-reason{font-size:0.85em;color:#7a5f00;margin-top:6px}",
         "</style></head><body>",
         f"<h1>{_ICON_HEADER} [{edition}] {date_str} 主要ニュース</h1>",
     ]
 
-    # 記事要約セクション
-    for item in result.get("summaries", []):
+    # ハイライトセクション
+    highlights = result.get("highlights", [])
+    summaries = result.get("summaries", [])
+    highlight_indices = {h["index"] for h in highlights}
+    if highlights:
+        parts.append('<div class="highlight-box">')
+        parts.append(f'<h2 style="margin:0 0 14px;background:none;border:none;padding:0">{_ICON_HIGHLIGHT} 今日のハイライト</h2>')
+        for h in highlights:
+            s = summaries[h["index"]]
+            cat = s.get("category", "")
+            icon = CATEGORY_ICONS.get(cat, _ICON_DEFAULT_CAT)
+            url = s.get("url", "")
+            safe_url = _safe_href(url)
+            safe_title = html.escape(s.get("title", ""))
+            parts.append('<div class="highlight-item">')
+            parts.append(f'<div class="article-title">{icon} {safe_title}</div>')
+            parts.append(f'<div class="highlight-reason">▶ {html.escape(h["reason"])}</div>')
+            parts.append(f'<div class="article-summary">{html.escape(s.get("summary",""))}</div>')
+            background = s.get("background", "")
+            if background:
+                parts.append(f'<div class="article-background">{_ICON_BACKGROUND} 背景: {html.escape(background)}</div>')
+            for section in _ENTITY_SECTIONS:
+                _append_entity_html(parts, section, s.get(section["field"], []))
+            parts.append(f'<a href="{safe_url}">{_ICON_LINK} 記事を読む</a>')
+            parts.append(f'<div class="article-source">{_ICON_HEADER} {html.escape(s.get("source",""))}</div>')
+            parts.append('</div>')
+        parts.append('</div>')
+
+    # 記事要約セクション（ハイライト済みはスキップ）
+    for idx, item in enumerate(result.get("summaries", [])):
+        if idx in highlight_indices:
+            continue
         cat = item.get("category", "")
         icon = CATEGORY_ICONS.get(cat, _ICON_DEFAULT_CAT)
         # html.escape() でHTMLエスケープ（特殊文字をHTMLの表示文字に変換）

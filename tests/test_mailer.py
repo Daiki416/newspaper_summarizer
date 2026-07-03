@@ -344,6 +344,126 @@ def test_entity_section_css_classes_defined_in_style_block():
             ), f"CSS クラス .{cls}（{section['field']} の {css_key}）が <style> に定義されていません"
 
 
+# --- highlights ---
+
+
+def _result_with_highlights():
+    items = [
+        {
+            "category": "国内政治・経済",
+            "title": "重要ニュースA",
+            "summary": "要約Aです。",
+            "url": "https://example.com/a",
+            "source": "ソースA",
+        },
+        {
+            "category": "国際",
+            "title": "重要ニュースB",
+            "summary": "要約Bです。",
+            "url": "https://example.com/b",
+            "source": "ソースB",
+        },
+    ]
+    return {
+        "summaries": items,
+        "highlights": [{"index": 0, "reason": "国内政治への重大な影響があるため"}],
+        "stock_picks": [],
+    }
+
+
+def test_build_text_highlights_rendered():
+    result = _result_with_highlights()
+    text = _build_text("朝刊", result, "2026年7月3日")
+    assert "今日のハイライト" in text
+    assert "重要ニュースA" in text
+    assert "国内政治への重大な影響があるため" in text
+
+
+def test_build_text_highlights_empty_no_section():
+    result = {"summaries": [_item_full()], "highlights": [], "stock_picks": []}
+    text = _build_text("朝刊", result, "2026年7月3日")
+    assert "今日のハイライト" not in text
+
+
+def test_build_text_highlights_missing_no_section():
+    # highlights キーが無い（旧キャッシュ相当）場合もクラッシュしない
+    result = {"summaries": [_item_full()], "stock_picks": []}
+    text = _build_text("朝刊", result, "2026年7月3日")
+    assert "今日のハイライト" not in text
+
+
+def test_build_text_highlights_appear_before_summaries():
+    result = _result_with_highlights()
+    text = _build_text("朝刊", result, "2026年7月3日")
+    i_highlight = text.index("今日のハイライト")
+    # 記事要約セクションの区切り（━━ カテゴリ ━━）はハイライトより後ろ
+    i_article_section = text.index("━━ 🏛 国内政治・経済 ━━")
+    assert i_highlight < i_article_section
+
+
+def test_build_html_highlights_rendered():
+    result = _result_with_highlights()
+    html_out = _build_html("朝刊", result, "2026年7月3日")
+    assert "今日のハイライト" in html_out
+    assert '<div class="highlight-box">' in html_out
+    assert "重要ニュースA" in html_out
+    assert "国内政治への重大な影響があるため" in html_out
+
+
+def test_build_html_highlights_empty_no_section():
+    result = {"summaries": [_item_full()], "highlights": [], "stock_picks": []}
+    html_out = _build_html("朝刊", result, "2026年7月3日")
+    assert "今日のハイライト" not in html_out
+    # CSS 定義は <style> に残るが、ハイライト要素（<div class="highlight-box">）は出ない
+    assert '<div class="highlight-box">' not in html_out
+
+
+def test_build_html_highlights_missing_no_section():
+    # highlights キーが無い（旧キャッシュ相当）場合もクラッシュしない
+    result = {"summaries": [_item_full()], "stock_picks": []}
+    html_out = _build_html("朝刊", result, "2026年7月3日")
+    assert "今日のハイライト" not in html_out
+
+
+def test_build_html_highlights_appear_before_summaries():
+    result = _result_with_highlights()
+    html_out = _build_html("朝刊", result, "2026年7月3日")
+    i_highlight = html_out.index("今日のハイライト")
+    # 記事要約セクションの <div class="article"> はハイライトより後ろ
+    i_article = html_out.index('class="article"')
+    assert i_highlight < i_article
+
+
+def test_build_html_highlights_escapes_html():
+    items = [{
+        "category": "国内ビジネス",
+        "title": "<script>xss</script>",
+        "summary": "要約&テスト",
+        "url": "https://example.com/a",
+        "source": "テスト",
+    }]
+    result = {
+        "summaries": items,
+        "highlights": [{"index": 0, "reason": "<xss>理由</xss>"}],
+        "stock_picks": [],
+    }
+    html_out = _build_html("朝刊", result, "2026年7月3日")
+    assert "<script>xss</script>" not in html_out
+    assert "&lt;script&gt;" in html_out
+    assert "<xss>" not in html_out
+    assert "&lt;xss&gt;" in html_out
+
+
+def test_build_html_highlight_css_in_style_block():
+    # highlight 用 CSS クラスが <style> ブロックに定義されていること
+    html_out = _build_html("朝刊", {"summaries": []}, "2026年7月3日")
+    start = html_out.index("<style>")
+    end = html_out.index("</style>")
+    style_block = html_out[start:end]
+    for cls in ("highlight-box", "highlight-item", "highlight-title", "highlight-reason"):
+        assert f".{cls}" in style_block, f"CSS クラス .{cls} が <style> に定義されていません"
+
+
 def test_style_block_entity_classes_all_defined_in_entity_sections():
     # 逆方向整合: <style> 内のエンティティ用クラスに _ENTITY_SECTIONS 未定義のものが無いこと。
     # .article / .life / .stocks 等エンティティ以外のクラスは対象外（プレフィックスで限定）。

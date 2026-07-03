@@ -57,7 +57,12 @@ companies（企業紹介）・people（人物紹介）・keywords（キーワー
 - name には正確な現在の正式社名を出すこと。証券コードは出さなくてよい（こちらで権威的に解決する）
 - これは投資助言ではなく情報提供であることを念頭に置く
 
-- Source フィールドに記載された出典名は変更せずそのまま source フィールドに出力すること"""
+- Source フィールドに記載された出典名は変更せずそのまま source フィールドに出力すること
+
+highlights には、今日の summaries の中から最重要ニュース 1〜2 件を選んでください。
+- summaries 配列の 0-based index を指定すること
+- 政治・経済・マーケットへの影響が大きいものを優先する
+- 理由（reason）は「なぜ今日これが重要か」を 1 文で書く"""
 
 # Tool Use（ツール使用）の定義。
 # AIに「この形式でデータを返してください」と指定するための仕組みで、
@@ -129,6 +134,26 @@ _TOOL = {
             },
             # life_impact: 今日のニュース全体を踏まえた生活への影響（全体で1個）
             "life_impact": {"type": "string"},
+            # highlights: 今日の最重要ニュース 1〜2 件（summaries の 0-based index で参照）
+            "highlights": {
+                "type": "array",
+                "description": "今日の最重要ニュース1〜2件。summaries 配列の 0-based index で参照する",
+                "maxItems": 2,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "index": {
+                            "type": "integer",
+                            "description": "summaries 配列の 0-based index"
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "このニュースを選んだ理由（1文）"
+                        }
+                    },
+                    "required": ["index", "reason"]
+                }
+            },
             # stock_picks: ニュースを根拠とした注目銘柄候補のリスト
             "stock_picks": {
                 "type": "array",
@@ -147,7 +172,7 @@ _TOOL = {
                 },
             },
         },
-        "required": ["summaries", "life_impact", "stock_picks"],
+        "required": ["summaries", "life_impact", "stock_picks", "highlights"],
     },
 }
 
@@ -222,7 +247,7 @@ def summarize(articles_by_category: dict[str, list[dict]]) -> dict:
     """
     # 記事がひとつもない場合は空の結果をそのまま返す
     if not articles_by_category:
-        return {"summaries": [], "life_impact": "", "stock_picks": []}
+        return {"summaries": [], "life_impact": "", "stock_picks": [], "highlights": []}
 
     # --- AIへ送るプロンプト（入力テキスト）を組み立てる ---
     # Markdown形式（## カテゴリ、### 記事タイトル）で構造化すると
@@ -295,6 +320,18 @@ def summarize(articles_by_category: dict[str, list[dict]]) -> dict:
             _normalize_entity_fields(result["summaries"])
             # 全体の生活への影響が欠落していても mailer 側へ None が渡らないようにする
             result.setdefault("life_impact", "")
+            # highlights の防御的正規化
+            result.setdefault("highlights", [])
+            if not isinstance(result["highlights"], list):
+                result["highlights"] = []
+            # index が summaries の範囲外の要素を除去
+            summaries_len = len(result.get("summaries", []))
+            result["highlights"] = [
+                h for h in result["highlights"]
+                if isinstance(h, dict)
+                and isinstance(h.get("index"), int)
+                and 0 <= h["index"] < summaries_len
+            ]
             return result
 
     # ここに到達するのは予期しないレスポンス構造の場合のみ
