@@ -50,14 +50,16 @@ def _parse_published(entry) -> datetime | None:
     return None
 
 
-def _fetch_category(feeds: list[dict], cutoff: datetime, max_articles: int = MAX_ARTICLES_PER_CATEGORY) -> list[dict]:
+def _fetch_category(feeds: list[dict], cutoff: datetime, max_articles: int = MAX_ARTICLES_PER_CATEGORY, max_per_feed: int = MAX_ARTICLES_PER_FEED) -> list[dict]:
     """1カテゴリ分のフィードをすべて取得し、新しい記事だけを返す。
 
     Args:
         feeds: sources.yamlから読み込んだ {url, name} のリスト
         cutoff: これより古い記事は除外する基準日時
+        max_articles: カテゴリ全体の最大記事数
+        max_per_feed: 1フィードあたりの最大記事数
     Returns:
-        記事の辞書のリスト（新しい順・最大 MAX_ARTICLES_PER_CATEGORY 件）
+        記事の辞書のリスト（新しい順・最大 max_articles 件）
     """
     articles = []
     for feed in feeds:
@@ -66,7 +68,7 @@ def _fetch_category(feeds: list[dict], cutoff: datetime, max_articles: int = MAX
         feed_count = 0  # このフィードから取得した記事数
         for entry in parsed.entries:
             # 1フィードから取りすぎないよう上限を設ける
-            if feed_count >= MAX_ARTICLES_PER_FEED:
+            if feed_count >= max_per_feed:
                 break
             pub = _parse_published(entry)
             # カットオフより古い記事はスキップ（continue で次のループへ）
@@ -99,11 +101,12 @@ def _fetch_category(feeds: list[dict], cutoff: datetime, max_articles: int = MAX
     return articles[:max_articles]
 
 
-def fetch_all(hours: int = 12) -> dict[str, list[dict]]:
+def fetch_all(hours: int = 12, candidate_factor: int = 1) -> dict[str, list[dict]]:
     """RSSフィードから全カテゴリの記事を取得する。
 
     Args:
         hours: 何時間前以降の記事を対象にするか
+        candidate_factor: 選定ステップ用に上限を何倍に拡張するか（1 = 拡張なし）
     Returns:
         {カテゴリ名: [記事dict, ...]} の辞書
     """
@@ -120,8 +123,22 @@ def fetch_all(hours: int = 12) -> dict[str, list[dict]]:
         else:
             feeds = conf
             max_articles = MAX_ARTICLES_PER_CATEGORY
-        articles = _fetch_category(feeds, cutoff, max_articles)
+        effective_max = max_articles * candidate_factor
+        effective_per_feed = MAX_ARTICLES_PER_FEED * candidate_factor
+        articles = _fetch_category(feeds, cutoff, effective_max, effective_per_feed)
         # 記事が1件もなかったカテゴリは結果に含めない
         if articles:
             result[category] = articles
+    return result
+
+
+def load_category_limits() -> dict[str, int]:
+    """sources.yaml の max_articles をカテゴリ名→件数の辞書で返す。"""
+    sources = _load_sources()
+    result = {}
+    for category, conf in sources.items():
+        if isinstance(conf, dict) and "feeds" in conf:
+            result[category] = conf.get("max_articles", MAX_ARTICLES_PER_CATEGORY)
+        else:
+            result[category] = MAX_ARTICLES_PER_CATEGORY
     return result

@@ -68,8 +68,9 @@ _load_secrets_from_ssm()
 
 # SSM セット後に各モジュールを import する（detect_edition は main から再利用する）
 from main import detect_edition
-from fetcher import fetch_all
+from fetcher import fetch_all, load_category_limits
 from summarizer import summarize
+from selector import select, CANDIDATE_FACTOR
 from mailer import send
 from storage import save_delivery
 from quotes import enrich_stock_prices
@@ -108,7 +109,7 @@ def handler(event, context):
     edition = _resolve_edition(event, now)
 
     print(f"[{edition}] ニュース取得中... (hours={hours})")
-    articles = fetch_all(hours=hours)
+    articles = fetch_all(hours=hours, candidate_factor=CANDIDATE_FACTOR)
 
     if not articles:
         # 対象記事がなければ要約・送信をスキップする（件数のみログ）
@@ -117,6 +118,7 @@ def handler(event, context):
 
     total = sum(len(v) for v in articles.values())
     print(f"  取得: {total}件（{len(articles)}カテゴリ）")
+    articles = select(articles, load_category_limits())
 
     from summarizer import LLM_PROVIDER
     print(f"{LLM_PROVIDER.capitalize()} APIで要約中...")

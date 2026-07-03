@@ -15,8 +15,9 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 # 同じプロジェクト内の他モジュールを読み込む
-from fetcher import fetch_all
+from fetcher import fetch_all, load_category_limits
 from summarizer import summarize
+from selector import select, CANDIDATE_FACTOR
 from mailer import send
 from quotes import enrich_stock_prices
 
@@ -95,7 +96,7 @@ def main() -> None:
         else:
             # 通常モード: RSS取得 → AI要約 の順に実行する
             print(f"[{edition}] ニュース取得中...")
-            articles = fetch_all(hours=args.hours)
+            articles = fetch_all(hours=args.hours, candidate_factor=CANDIDATE_FACTOR)
 
             if not articles:
                 print("対象記事が見つかりませんでした。")
@@ -104,6 +105,7 @@ def main() -> None:
             # カテゴリごとの記事数を集計して表示
             total = sum(len(v) for v in articles.values())
             print(f"  取得: {total}件（{len(articles)}カテゴリ）")
+            articles = select(articles, load_category_limits())
 
             from summarizer import LLM_PROVIDER
             print(f"{LLM_PROVIDER.capitalize()} APIで要約中...")
