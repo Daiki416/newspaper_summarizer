@@ -171,7 +171,6 @@ def _build_text(edition: str, result: dict, date_str: str) -> str:
             icon = CATEGORY_ICONS.get(cat, _ICON_DEFAULT_CAT)
             lines.append(f"━━ {icon} {cat} ━━")
             lines.append(f"【{s.get('title', '')}】")
-            lines.append(f"▶ {h['reason']}")
             lines.append(s.get("summary", ""))
             background = s.get("background", "")
             if background:
@@ -197,7 +196,6 @@ def _build_text(edition: str, result: dict, date_str: str) -> str:
         if background:
             lines.append(f"{_ICON_BACKGROUND} 背景: {background}")
         # 企業紹介・人物紹介・キーワードの3セクション（記事ごと・内容がある場合のみ表示）
-        # _ENTITY_SECTIONS の順（companies → people → keywords）で描画する
         for section in _ENTITY_SECTIONS:
             entities = item.get(section["field"], [])
             _append_entity_text(lines, section, entities)
@@ -280,7 +278,6 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         ".highlight-item{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid #e0c060}",
         ".highlight-item:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}",
         ".highlight-title{font-weight:bold;font-size:1.05em}",
-        ".highlight-reason{font-size:0.85em;color:#7a5f00;margin-top:6px}",
         "</style></head><body>",
         f"<h1>{_ICON_HEADER} [{edition}] {date_str} 主要ニュース</h1>",
     ]
@@ -301,7 +298,6 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
             safe_title = html.escape(s.get("title", ""))
             parts.append('<div class="highlight-item">')
             parts.append(f'<div class="article-title">{icon} {safe_title}</div>')
-            parts.append(f'<div class="highlight-reason">▶ {html.escape(h["reason"])}</div>')
             parts.append(f'<div class="article-summary">{html.escape(s.get("summary",""))}</div>')
             background = s.get("background", "")
             if background:
@@ -335,8 +331,6 @@ def _build_html(edition: str, result: dict, date_str: str) -> str:
         if background:
             parts.append(f'<div class="article-background">{_ICON_BACKGROUND} 背景: {html.escape(background)}</div>')
         # 企業紹介・人物紹介・キーワードの3セクション（記事ごと・内容がある場合のみ表示）
-        # _ENTITY_SECTIONS の順（companies → people → keywords）で描画する。
-        # CSS クラスの差異（keywords だけ別系統）は section が吸収する。
         for section in _ENTITY_SECTIONS:
             entities = item.get(section["field"], [])
             _append_entity_html(parts, section, entities)

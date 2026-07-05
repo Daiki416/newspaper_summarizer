@@ -69,8 +69,7 @@ companies（企業紹介）・people（人物紹介）・keywords（キーワー
 
 highlights には、今日の summaries の中から最重要ニュース 1〜2 件を選んでください。
 - summaries 配列の 0-based index を指定すること
-- 政治・経済・マーケットへの影響が大きいものを優先する
-- 理由（reason）は「なぜ今日これが重要か」を 1 文で書く"""
+- 生活・物価・雇用・身近なサービスへの影響が大きいものを優先する"""
 
 # Tool Use（ツール使用）の定義。
 # AIに「この形式でデータを返してください」と指定するための仕組みで、
@@ -153,13 +152,9 @@ _TOOL = {
                         "index": {
                             "type": "integer",
                             "description": "summaries 配列の 0-based index"
-                        },
-                        "reason": {
-                            "type": "string",
-                            "description": "このニュースを選んだ理由（1文）"
                         }
                     },
-                    "required": ["index", "reason"]
+                    "required": ["index"]
                 }
             },
             # stock_picks: ニュースを根拠とした注目銘柄候補のリスト
