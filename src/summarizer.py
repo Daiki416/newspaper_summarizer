@@ -402,7 +402,14 @@ def summarize(articles_by_category: dict[str, list[dict]]) -> dict:
     user_content = _build_user_content(articles_by_category)
 
     if LLM_PROVIDER == "gemini":
-        result = _call_gemini(user_content)
+        try:
+            result = _call_gemini(user_content)
+        except Exception as e:
+            if type(e).__name__ == "ServerError":
+                print(f"Gemini API 一時障害 ({type(e).__name__})、Claudeにフォールバックします")
+                result = _call_claude(user_content)
+            else:
+                raise
     elif LLM_PROVIDER == "claude":
         result = _call_claude(user_content)
     else:
