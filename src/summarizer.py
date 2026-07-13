@@ -411,7 +411,13 @@ def summarize(articles_by_category: dict[str, list[dict]]) -> dict:
             else:
                 raise
     elif LLM_PROVIDER == "claude":
-        result = _call_claude(user_content)
+        try:
+            result = _call_claude(user_content)
+        except anthropic.InternalServerError as e:
+            if not os.environ.get("GEMINI_API_KEY"):
+                raise
+            print(f"Claude API 一時障害 ({type(e).__name__})、Geminiにフォールバックします")
+            result = _call_gemini(user_content)
     else:
         raise ValueError(
             f"未対応のLLM_PROVIDER: {LLM_PROVIDER!r} (claude または gemini を指定してください)"
