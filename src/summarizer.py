@@ -9,7 +9,7 @@ from json_repair import repair_json
 
 # 使用するClaudeモデルの名前
 MODEL = "claude-sonnet-4-6"
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash-latest"
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "claude").lower()
 
