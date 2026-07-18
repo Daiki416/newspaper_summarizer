@@ -4,7 +4,7 @@ import json
 import copy
 
 CANDIDATE_FACTOR = 2
-_GEMINI_MODEL = "gemini-2.5-flash"
+_GEMINI_MODEL = "gemini-3.5-flash"
 
 _TOOL = {
     "name": "select_articles",
